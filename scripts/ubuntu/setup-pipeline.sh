@@ -115,12 +115,33 @@ done
 
 log_success "Deployed ${DEPLOYED_GEMINI_AGENTS}/5 Gemini agent files"
 
+# --- Git Identity ------------------------------------------------------------
+
+if validate_cmd "git"; then
+    if [[ -n "${GIT_USER_NAME:-}" ]]; then
+        git config --global user.name "$GIT_USER_NAME"
+        log_success "Git user.name set to: $GIT_USER_NAME"
+    fi
+    if [[ -n "${GIT_USER_EMAIL:-}" ]]; then
+        git config --global user.email "$GIT_USER_EMAIL"
+        log_success "Git user.email set to: $GIT_USER_EMAIL"
+    fi
+fi
+
 # --- Summary -----------------------------------------------------------------
 
 log_header "Deployment Summary"
 echo ""
 printf "  %-28s %s\n" "Claude config target:" "$CLAUDE_TARGET"
+printf "  %-28s %s\n" "  CLAUDE.md:" "$([ -f "$CLAUDE_TARGET/CLAUDE.md" ] && echo 'OK' || echo 'MISSING')"
+printf "  %-28s %s\n" "  settings.json:" "$([ -f "$CLAUDE_TARGET/settings.json" ] && echo 'OK' || echo 'MISSING')"
+printf "  %-28s %s\n" "  agents:" "${DEPLOYED_AGENTS}/5"
+echo ""
 printf "  %-28s %s\n" "Gemini config target:" "$GEMINI_TARGET"
+printf "  %-28s %s\n" "  GEMINI.md:" "$([ -f "$GEMINI_TARGET/GEMINI.md" ] && echo 'OK' || echo 'MISSING')"
+printf "  %-28s %s\n" "  settings.json:" "$([ -f "$GEMINI_TARGET/settings.json" ] && echo 'OK' || echo 'MISSING')"
+printf "  %-28s %s\n" "  agents:" "${DEPLOYED_GEMINI_AGENTS}/5"
 echo ""
 
 log_success "Pipeline agent config deployment complete"
+log_step "Claude Code will auto-detect agents at ~/.claude/agents/ on next launch"
