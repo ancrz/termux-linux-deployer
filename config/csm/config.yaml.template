@@ -1,0 +1,7 @@
+bind-addr: 0.0.0.0:{{CS_PORT}}
+auth: password
+password: {{CS_PASSWORD}}
+cert: false
+user-data-dir: /root/.local/share/code-server
+extensions-dir: /root/.local/share/vscode-extensions
+disable-telemetry: true

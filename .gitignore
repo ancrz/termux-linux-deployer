@@ -1,0 +1,32 @@
+# Environment secrets
+.env
+
+# Reference scripts (local only, from Google Drive)
+docs/
+
+# Go binary
+cmd/csm/csm
+
+# Runtime artifacts
+*.pid
+*.log
+*.o
+*.so
+
+# Node
+node_modules/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE (local preferences, not shared)
+.idea/
+*.swp
+*.swo
+*~
