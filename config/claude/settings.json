@@ -6,5 +6,29 @@
     "skill-creator@claude-plugins-official": true,
     "rust-analyzer-lsp@claude-plugins-official": true
   },
-  "effortLevel": "high"
+  "effortLevel": "high",
+  "mcpServers": {
+    "sequential-thinking": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-sequential-thinking"]
+    },
+    "github-mcp-server": {
+      "command": "/root/.local/bin/github-mcp-server",
+      "args": ["stdio"],
+      "env": {
+        "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_PERSONAL_ACCESS_TOKEN}"
+      }
+    },
+    "skill-swarm": {
+      "command": "/root/.local/share/skill-swarm/.venv/bin/python",
+      "args": ["-m", "skill_swarm.server"],
+      "env": {
+        "SKILL_SWARM_GITHUB_TOKEN": "${GITHUB_PERSONAL_ACCESS_TOKEN}"
+      }
+    },
+    "google-workspace-mcp": {
+      "command": "npx",
+      "args": ["google-workspace-mcp", "serve"]
+    }
+  }
 }
