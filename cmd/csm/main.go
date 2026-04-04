@@ -578,12 +578,66 @@ func installedExtensions() map[string]bool {
 	return result
 }
 
-// installExtension runs code-server --install-extension for a single extension.
-func installExtension(id string) error {
+// Extension install tunables.
+const (
+	extMaxRetryRounds    = 5
+	extRetryDelay        = 3 * time.Second
+	extInternetCheckURL  = "https://open-vsx.org"
+	extInternetTimeout   = 10 * time.Second
+)
+
+// extResult captures the outcome of a single extension install attempt.
+type extResult struct {
+	ID       string
+	Err      error
+	Output   string
+	IsCrash  bool // proot segfault / malloc corruption
+	IsNet    bool // network / timeout error
+}
+
+// installExtensionCaptured runs code-server --install-extension and captures
+// output to classify the failure mode. It never panics or crashes the process.
+func installExtensionCaptured(id string) extResult {
 	cmd := exec.Command("code-server", "--install-extension", id, "--force")
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
+	out, err := cmd.CombinedOutput()
+	output := string(out)
+
+	r := extResult{ID: id, Err: err, Output: output}
+	if err != nil {
+		lower := strings.ToLower(output + err.Error())
+		// Classify: proot memory corruption
+		if strings.Contains(lower, "double free") ||
+			strings.Contains(lower, "corruption") ||
+			strings.Contains(lower, "segmentation fault") ||
+			strings.Contains(lower, "malloc") ||
+			strings.Contains(lower, "signal: aborted") ||
+			strings.Contains(lower, "exit status 134") ||
+			strings.Contains(lower, "exit status 139") {
+			r.IsCrash = true
+		}
+		// Classify: network errors
+		if strings.Contains(lower, "econnrefused") ||
+			strings.Contains(lower, "enotfound") ||
+			strings.Contains(lower, "etimedout") ||
+			strings.Contains(lower, "fetch failed") ||
+			strings.Contains(lower, "network") ||
+			strings.Contains(lower, "socket hang up") ||
+			strings.Contains(lower, "unable to connect") {
+			r.IsNet = true
+		}
+	}
+	return r
+}
+
+// checkInternet verifies connectivity to the extension marketplace.
+func checkInternet() bool {
+	client := &http.Client{Timeout: extInternetTimeout}
+	resp, err := client.Head(extInternetCheckURL)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	return resp.StatusCode < 500
 }
 
 // cmdExtensions dispatches the extensions subcommand.
@@ -607,7 +661,17 @@ func cmdExtensions(action, profilePath string) {
 	}
 }
 
-// extInstall installs all extensions from the profile that are not yet installed.
+// extInstall installs all extensions from the profile with a deferred retry loop.
+//
+// Strategy:
+//   Round 1 — attempt every extension. Failures are deferred (not fatal).
+//   Round 2..N — retry only deferred extensions. Before each round, verify
+//   internet connectivity. If a full round completes with zero new successes,
+//   stop (no progress). Max extMaxRetryRounds total rounds.
+//
+// This handles proot-distro's intermittent segfaults (double free, malloc
+// corruption) which are non-deterministic — the same extension often succeeds
+// on a subsequent attempt.
 func extInstall(profilePath string) {
 	path := defaultProfilePath(profilePath)
 	profile, err := loadProfile(path)
@@ -622,51 +686,148 @@ func extInstall(profilePath string) {
 	installed := installedExtensions()
 	wanted := profile.allExtensionIDs()
 
-	var toInstall []string
+	// Build the initial install queue (extensions not yet installed).
+	var queue []string
 	for _, ext := range wanted {
 		if !installed[strings.ToLower(ext)] {
-			toInstall = append(toInstall, ext)
+			queue = append(queue, ext)
 		}
 	}
+	alreadyPresent := len(wanted) - len(queue)
 
-	if len(toInstall) == 0 {
+	if len(queue) == 0 {
 		printSuccess(fmt.Sprintf("All %d profile extensions are already installed.", len(wanted)))
 		return
 	}
 
 	printInfo(fmt.Sprintf("Installing %d/%d extensions (%d already installed)...",
-		len(toInstall), len(wanted), len(wanted)-len(toInstall)))
-	fmt.Println()
+		len(queue), len(wanted), alreadyPresent))
 
-	success, failed := 0, 0
-	for _, cat := range sortedCategories(profile) {
-		catData := profile.Categories[cat]
-		headerPrinted := false
-		for _, ext := range catData.Extensions {
-			if installed[strings.ToLower(ext)] {
-				continue
+	totalSuccess := 0
+	totalFailed := 0
+	permanent := make(map[string]string) // extensions that failed on all attempts, with reason
+
+	for round := 1; round <= extMaxRetryRounds; round++ {
+		if len(queue) == 0 {
+			break
+		}
+
+		// --- Internet pre-check (skip on round 1 to avoid blocking first run) ---
+		if round > 1 {
+			printInfo(fmt.Sprintf("Checking internet before retry round %d...", round))
+			if !checkInternet() {
+				printWarn("No internet connectivity. Waiting 10s before retry...")
+				time.Sleep(10 * time.Second)
+				if !checkInternet() {
+					printError("Internet still unavailable. Stopping retries.")
+					for _, ext := range queue {
+						permanent[ext] = "network unavailable"
+					}
+					break
+				}
 			}
-			if !headerPrinted {
-				fmt.Printf("\n  [%s] %s\n", cat, catData.Description)
-				headerPrinted = true
+			printInfo(fmt.Sprintf("Retry round %d: %d deferred extension(s)...", round, len(queue)))
+			time.Sleep(extRetryDelay) // brief pause between rounds
+		} else {
+			fmt.Println()
+		}
+
+		var deferred []string
+		roundSuccess := 0
+
+		// Group by category for display (round 1 only; retries are flat).
+		if round == 1 {
+			queueSet := make(map[string]bool)
+			for _, ext := range queue {
+				queueSet[strings.ToLower(ext)] = true
 			}
-			fmt.Printf("    Installing %s... ", ext)
-			if err := installExtension(ext); err != nil {
-				fmt.Println("FAILED")
-				failed++
-			} else {
-				fmt.Println("OK")
-				success++
+			for _, cat := range sortedCategories(profile) {
+				catData := profile.Categories[cat]
+				headerPrinted := false
+				for _, ext := range catData.Extensions {
+					if !queueSet[strings.ToLower(ext)] {
+						continue
+					}
+					if !headerPrinted {
+						fmt.Printf("\n  [%s] %s\n", cat, catData.Description)
+						headerPrinted = true
+					}
+					fmt.Printf("    Installing %s... ", ext)
+					r := installExtensionCaptured(ext)
+					if r.Err == nil {
+						fmt.Println("OK")
+						roundSuccess++
+					} else {
+						tag := "error"
+						if r.IsCrash {
+							tag = "proot crash"
+						} else if r.IsNet {
+							tag = "network"
+						}
+						fmt.Printf("DEFERRED (%s)\n", tag)
+						deferred = append(deferred, ext)
+					}
+				}
 			}
+		} else {
+			for _, ext := range queue {
+				fmt.Printf("    Retrying %s... ", ext)
+				r := installExtensionCaptured(ext)
+				if r.Err == nil {
+					fmt.Println("OK")
+					roundSuccess++
+				} else {
+					tag := "error"
+					if r.IsCrash {
+						tag = "proot crash"
+					} else if r.IsNet {
+						tag = "network"
+					}
+					fmt.Printf("DEFERRED (%s)\n", tag)
+					deferred = append(deferred, ext)
+				}
+			}
+		}
+
+		totalSuccess += roundSuccess
+		queue = deferred
+
+		// Report round summary.
+		fmt.Println()
+		printInfo(fmt.Sprintf("Round %d: %d succeeded, %d deferred",
+			round, roundSuccess, len(deferred)))
+
+		// No progress — stop retrying.
+		if roundSuccess == 0 && len(deferred) > 0 {
+			printWarn("No progress in this round. Marking remaining as failed.")
+			for _, ext := range deferred {
+				permanent[ext] = "no progress after retry"
+			}
+			break
 		}
 	}
 
+	// Any still in queue after max rounds.
+	for _, ext := range queue {
+		if _, ok := permanent[ext]; !ok {
+			permanent[ext] = fmt.Sprintf("failed after %d rounds", extMaxRetryRounds)
+		}
+	}
+	totalFailed = len(permanent)
+
+	// --- Final summary ---
 	fmt.Println()
 	printInfo(fmt.Sprintf("Results: %d installed, %d failed, %d were already present",
-		success, failed, len(wanted)-len(toInstall)))
-	if failed > 0 {
-		printWarn("Some extensions may not be available on Open-VSX marketplace.")
+		totalSuccess, totalFailed, alreadyPresent))
+
+	if totalFailed > 0 {
+		printWarn("Failed extensions:")
+		for ext, reason := range permanent {
+			fmt.Printf("    %s (%s)\n", ext, reason)
+		}
+		printWarn("Re-run 'csm extensions install' to retry failed extensions.")
 	}
+
 	printSuccess("Extension install complete.")
 }
 
@@ -732,14 +893,41 @@ func extSync(profilePath string) {
 		}
 		fmt.Println()
 
-		// Install missing
-		printInfo("Installing missing extensions...")
-		for _, ext := range missing {
-			fmt.Printf("  Installing %s... ", ext)
-			if err := installExtension(ext); err != nil {
-				fmt.Println("FAILED")
-			} else {
-				fmt.Println("OK")
+		// Install missing with retry loop (same strategy as extInstall).
+		printInfo("Installing missing extensions with retry...")
+		queue := missing
+		for round := 1; round <= extMaxRetryRounds && len(queue) > 0; round++ {
+			if round > 1 {
+				if !checkInternet() {
+					printWarn("No internet. Stopping retries.")
+					break
+				}
+				printInfo(fmt.Sprintf("Retry round %d: %d remaining...", round, len(queue)))
+				time.Sleep(extRetryDelay)
+			}
+			var deferred []string
+			progress := 0
+			for _, ext := range queue {
+				fmt.Printf("  Installing %s... ", ext)
+				r := installExtensionCaptured(ext)
+				if r.Err == nil {
+					fmt.Println("OK")
+					progress++
+				} else {
+					tag := "error"
+					if r.IsCrash {
+						tag = "proot crash"
+					} else if r.IsNet {
+						tag = "network"
+					}
+					fmt.Printf("DEFERRED (%s)\n", tag)
+					deferred = append(deferred, ext)
+				}
+			}
+			queue = deferred
+			if progress == 0 && len(deferred) > 0 {
+				printWarn("No progress. Remaining extensions could not be installed.")
+				break
 			}
 		}
 	} else {
