@@ -64,22 +64,30 @@ graph TB
 
 ```mermaid
 flowchart LR
-    subgraph "install-all.sh"
+    subgraph "Termux: install-ubuntu.sh"
+        UB["proot-distro install"] --> BS["base-setup.sh<br/>Go + UV + apt"]
+    end
+
+    subgraph "Ubuntu proot: install-all.sh"
         direction LR
-        BS["base-setup"] --> ND["setup-node"]
-        ND --> GM["setup-gemini"]
+        ND["setup-node"] --> GM["setup-gemini"]
         ND --> CL["setup-claude"]
-        BS --> CSM["setup-csm"]
+        CSM["setup-csm"] --> EX["setup-extensions"]
         CL --> PL["setup-pipeline"]
         CL --> MCP["setup-mcp"]
         MCP --> CR["setup-credentials"]
-        CSM --> EX["setup-extensions"]
     end
 
+    BS -.->|"foundation ready"| ND
+    BS -.->|"Go available"| CSM
+
     style BS fill:#4a9eff
+    style UB fill:#4a9eff
     style EX fill:#2ecc71
     style CL fill:#e74c3c
 ```
+
+`base-setup.sh` runs inside `install-ubuntu.sh` (Termux side) as part of Ubuntu provisioning. `install-all.sh` assumes the foundation layer is already present.
 
 ## Quick Start
 
