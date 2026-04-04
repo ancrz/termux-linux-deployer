@@ -20,7 +20,7 @@ load_env
 # --- Configuration -----------------------------------------------------------
 
 # Deployer root is the parent of scripts/ubuntu/.
-DEPLOYER_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+DEPLOYER_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 CLAUDE_CONFIG_SRC="$DEPLOYER_DIR/config/claude"
 GEMINI_CONFIG_SRC="$DEPLOYER_DIR/config/gemini"
