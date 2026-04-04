@@ -20,6 +20,8 @@ ensure_path
 # --- Configuration -----------------------------------------------------------
 
 GEMINI_PKG="@google/gemini-cli"
+# Release channels: latest (stable), preview (weekly), nightly (daily/bleeding edge)
+GEMINI_CHANNEL="${GEMINI_CHANNEL:-latest}"
 SYS_PYTHON="/usr/bin/python3"
 PYTHON_VER="${PYTHON_DEFAULT_VERSION:-3.14}"
 
@@ -98,12 +100,28 @@ else
 fi
 
 if [[ "$DO_INSTALL" -eq 1 ]]; then
-    log_step "Installing/upgrading Gemini CLI (latest)"
-    npm install -g "$GEMINI_PKG"@latest \
+    log_step "Installing/upgrading Gemini CLI (channel: ${GEMINI_CHANNEL})"
+    log_step "Available channels: latest (stable), preview (weekly), nightly (daily)"
+
+    if npm install -g "${GEMINI_PKG}@${GEMINI_CHANNEL}" \
         --python="$SYS_PYTHON" \
         --foreground-scripts \
-        --no-audit
-    log_success "Gemini CLI installed"
+        --no-audit; then
+        log_success "Gemini CLI installed (channel: ${GEMINI_CHANNEL})"
+    else
+        # Fallback: if chosen channel fails, try stable
+        if [[ "$GEMINI_CHANNEL" != "latest" ]]; then
+            log_warn "Channel '${GEMINI_CHANNEL}' failed — falling back to 'latest'"
+            npm install -g "${GEMINI_PKG}@latest" \
+                --python="$SYS_PYTHON" \
+                --foreground-scripts \
+                --no-audit
+            log_success "Gemini CLI installed (fallback: latest)"
+        else
+            log_fail "Gemini CLI installation failed"
+            exit 1
+        fi
+    fi
 fi
 
 # --- Validation --------------------------------------------------------------
