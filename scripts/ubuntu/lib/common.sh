@@ -135,7 +135,7 @@ smart_install_packages() {
     done
 
     # Step 4: Deduplicate and install.
-    local -a TO_PROCESS
+    local -a TO_PROCESS=()
     if [[ ${#MISSING[@]} -gt 0 || ${#UPGRADABLE[@]} -gt 0 ]]; then
         # Merge arrays and deduplicate via sort -u.
         mapfile -t TO_PROCESS < <(
