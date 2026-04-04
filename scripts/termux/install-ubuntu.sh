@@ -40,7 +40,7 @@ _info "Checking proot-distro availability"
 
 if ! command -v proot-distro &>/dev/null; then
     _info "proot-distro not found — installing via pkg"
-    pkg install proot-distro -y
+    pkg install proot-distro termux-api -y 2>/dev/null || pkg install proot-distro -y
 fi
 
 _ok "proot-distro is available"
@@ -105,8 +105,27 @@ fi
 # Copy .env into proot home if it exists on the host.
 ENV_FILE="$PROJECT_DIR/.env"
 if [[ -f "$ENV_FILE" ]]; then
-    cp "$ENV_FILE" "$ROOTFS/root/.env"
-    _ok "Copied .env to proot /root/.env"
+    # Validate .env before copying (inline — warn and skip copy on bad content)
+    _ENV_INVALID=0
+    while IFS= read -r line || [ -n "$line" ]; do
+        [ -z "$line" ] || [[ "$line" =~ ^[[:space:]]*# ]] && continue
+        if ! [[ "$line" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]]; then
+            _warn ".env: invalid line format: $line"
+            _ENV_INVALID=$((_ENV_INVALID + 1))
+        fi
+        _val="${line#*=}"
+        if [[ "$_val" =~ \`|\$\( ]]; then
+            _warn ".env: dangerous pattern detected: $line"
+            _ENV_INVALID=$((_ENV_INVALID + 1))
+        fi
+    done < "$ENV_FILE"
+    if [ "$_ENV_INVALID" -gt 0 ]; then
+        _warn ".env has ${_ENV_INVALID} invalid line(s) — skipping copy to proot."
+        _warn "Fix .env before running install-all.sh inside proot."
+    else
+        cp "$ENV_FILE" "$ROOTFS/root/.env"
+        _ok "Copied .env to proot /root/.env"
+    fi
 else
     _warn ".env not found — create one from .env.example before running install-all.sh"
 fi
