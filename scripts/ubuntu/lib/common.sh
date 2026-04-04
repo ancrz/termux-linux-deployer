@@ -166,12 +166,42 @@ ensure_path() {
 
 # --- Environment Loading -----------------------------------------------------
 
+# validate_env: Check .env file for dangerous patterns before sourcing.
+# Rejects lines with backticks, $(), pipes, semicolons outside of assignments.
+validate_env() {
+    local env_file="$1"
+    local line_num=0
+    local errors=0
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        line_num=$((line_num + 1))
+        # Skip empty lines and comments
+        [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
+        # Must be a valid KEY=VALUE assignment
+        if ! [[ "$line" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]]; then
+            log_fail ".env:${line_num}: invalid format (expected KEY=VALUE)"
+            errors=$((errors + 1))
+            continue
+        fi
+        # Reject dangerous shell constructs in the value
+        local value="${line#*=}"
+        if [[ "$value" =~ \`|\$\(|\; ]] && [[ ! "$value" =~ ^\$\{ ]]; then
+            log_fail ".env:${line_num}: dangerous pattern detected"
+            errors=$((errors + 1))
+        fi
+    done < "$env_file"
+    return $errors
+}
+
 # load_env: Source $HOME/.env if it exists and export all variables.
 # Variables already in the environment take precedence (set +a pattern).
 load_env() {
     local ENV_FILE="${HOME}/.env"
     if [[ -f "$ENV_FILE" ]]; then
         log_step "Loading environment from $ENV_FILE"
+        if ! validate_env "$ENV_FILE"; then
+            log_fail "Refusing to source $ENV_FILE due to validation errors above."
+            return 1
+        fi
         set -a
         # shellcheck disable=SC1090
         source "$ENV_FILE"

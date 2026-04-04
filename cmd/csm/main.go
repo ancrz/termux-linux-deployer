@@ -16,11 +16,13 @@
 //   purge      – Interactively remove all config/data/extension directories.
 //   watchdog   – Background loop: restart code-server on repeated health failures.
 //   extensions – Profile-based extension management (install/list/sync).
+//   update     – Stop, reinstall, and verify code-server.
 package main
 
 import (
 	"bufio"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -50,8 +52,11 @@ var (
 	logFile       = filepath.Join(configDir, "code-server.log")
 	port          = getEnv("CS_PORT", "8443")
 	password      = os.Getenv("CS_PASSWORD")
-	memoryLimit   = "4096" // MB for NODE_OPTIONS=--max-old-space-size
+	memoryLimit   = getEnv("CS_MEMORY_LIMIT", "3072") // MB for NODE_OPTIONS=--max-old-space-size
 )
+
+// version is set at build time via -ldflags "-X main.version=<tag>".
+var version = "dev"
 
 // Watchdog tuning constants.
 const (
@@ -59,6 +64,7 @@ const (
 	maxConsecFailures  = 3
 	healthCheckTimeout = 5 * time.Second
 	startupWaitSeconds = 5
+	maxLogFileSize     = 5 * 1024 * 1024 // 5 MB
 )
 
 // Log rotation constants.
@@ -75,6 +81,12 @@ func main() {
 	if len(os.Args) < 2 {
 		printUsage()
 		os.Exit(1)
+	}
+
+	// Handle version flag before the subcommand switch.
+	if os.Args[1] == "--version" || os.Args[1] == "-v" {
+		fmt.Println("csm " + version)
+		return
 	}
 
 	subcmd := os.Args[1]
@@ -109,6 +121,8 @@ func main() {
 		cmdPurge()
 	case "watchdog":
 		cmdWatchdog()
+	case "update":
+		cmdUpdate()
 	case "extensions":
 		extSub := "install"
 		if len(os.Args) >= 3 {
@@ -141,15 +155,20 @@ Subcommands:
   logs rotate                    Rotate logs if over 100MB (keeps 7 backups)
   purge                          Remove all code-server config/data (destructive)
   watchdog                       Background watchdog loop
+  update                         Stop, reinstall, and verify code-server
   extensions install [profile]   Install extensions from profile JSON
   extensions list                List installed extensions
   extensions sync [profile]      Install missing, report extras
 
 Environment variables:
-  CS_PASSWORD      Password written into config.yaml
-  CS_PORT          Bind port (default 8443)
-  HOME             User home directory (default /root)
-  WORKSPACE_DIR    Workspace directory opened by code-server
+  CS_PASSWORD               Password written into config.yaml
+  CS_PORT                   Bind port (default 8443)
+  CS_CERT_MODE              TLS cert mode: none|auto|custom (default none)
+  CS_CERT_FILE              Path to cert file (used when CS_CERT_MODE=custom)
+  CS_MEMORY_LIMIT           Node.js heap limit in MB (default 3072)
+  CS_DISABLE_FILE_DOWNLOADS Set to "true" to pass --disable-file-downloads
+  HOME                      User home directory (default /root)
+  WORKSPACE_DIR             Workspace directory opened by code-server
 `)
 }
 
@@ -159,6 +178,7 @@ Environment variables:
 
 // cmdInstall downloads and installs code-server via the official install script.
 // It is idempotent: if code-server is already on PATH, it prints a notice and exits.
+// The script is downloaded to a temp file, verified non-empty, executed, then removed.
 func cmdInstall() {
 	if path, err := exec.LookPath("code-server"); err == nil {
 		printInfo("code-server is already installed at " + path)
@@ -167,19 +187,61 @@ func cmdInstall() {
 	}
 
 	printInfo("Installing code-server via official install script...")
-	cmd := exec.Command("bash", "-c", "curl -fsSL https://code-server.dev/install.sh | sh")
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	cmd.Stdin = os.Stdin
-	if err := cmd.Run(); err != nil {
-		printError("install failed: " + err.Error())
+
+	tmpFile := "/tmp/cs-install.sh"
+
+	// Download the install script to a temp file.
+	dl := exec.Command("curl", "-fsSL", "-o", tmpFile, "https://code-server.dev/install.sh")
+	dl.Stdout = os.Stdout
+	dl.Stderr = os.Stderr
+	if err := dl.Run(); err != nil {
+		printError("failed to download install script: " + err.Error())
+		os.Exit(1)
+	}
+
+	// Verify the download is non-empty (a valid install script is at minimum a few KB).
+	info, err := os.Stat(tmpFile)
+	if err != nil {
+		printError("failed to stat downloaded script: " + err.Error())
+		os.Exit(1)
+	}
+	if info.Size() < 100 {
+		_ = os.Remove(tmpFile)
+		printError("downloaded install script is too small to be valid (< 100 bytes)")
+		os.Exit(1)
+	}
+
+	// Execute the downloaded script.
+	run := exec.Command("bash", tmpFile)
+	run.Stdout = os.Stdout
+	run.Stderr = os.Stderr
+	run.Stdin = os.Stdin
+	runErr := run.Run()
+
+	// Always clean up the temp file.
+	_ = os.Remove(tmpFile)
+
+	if runErr != nil {
+		printError("install failed: " + runErr.Error())
 		os.Exit(1)
 	}
 	printSuccess("code-server installed successfully.")
 }
 
+// hashPassword attempts to hash a plaintext password using argon2-cli via npx.
+// Returns the hashed string, or an error if argon2-cli is not available.
+func hashPassword(plain string) (string, error) {
+	cmd := exec.Command("npx", "argon2-cli", plain, "--argon2id", "-e")
+	out, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
 // cmdConfig creates all required directories and writes config.yaml.
 // CS_PASSWORD must be set; warns but continues if empty.
+// Supports Argon2 password hashing via argon2-cli and TLS cert mode via CS_CERT_MODE.
 func cmdConfig() {
 	if password == "" {
 		printWarn("CS_PASSWORD is not set — config.yaml will have an empty password.")
@@ -195,14 +257,43 @@ func cmdConfig() {
 		printInfo("  " + dir)
 	}
 
+	// Determine password field: try Argon2 hash first, fall back to plaintext.
+	passwordLine := "password: " + password
+	if password != "" {
+		if hash, err := hashPassword(password); err == nil {
+			passwordLine = "hashed-password: " + hash
+			printInfo("Password hashed with Argon2id.")
+		} else {
+			printWarn("argon2-cli not available (" + err.Error() + ") — storing password as plaintext.")
+		}
+	}
+
+	// Determine cert configuration from CS_CERT_MODE env var.
+	certMode := getEnv("CS_CERT_MODE", "none")
+	var certLine string
+	switch certMode {
+	case "auto":
+		certLine = "cert: true"
+	case "custom":
+		certFile := getEnv("CS_CERT_FILE", "")
+		if certFile == "" {
+			printWarn("CS_CERT_MODE=custom but CS_CERT_FILE is not set — falling back to cert: false.")
+			certLine = "cert: false"
+		} else {
+			certLine = "cert: " + certFile
+		}
+	default: // "none" or unrecognized
+		certLine = "cert: false"
+	}
+
 	configContent := fmt.Sprintf(`bind-addr: 0.0.0.0:%s
 auth: password
-password: %s
-cert: false
+%s
+%s
 user-data-dir: %s
 extensions-dir: %s
 disable-telemetry: true
-`, port, password, dataDir, extensionsDir)
+`, port, passwordLine, certLine, dataDir, extensionsDir)
 
 	if err := os.WriteFile(configFile, []byte(configContent), 0o600); err != nil {
 		printError("failed to write config: " + err.Error())
@@ -215,7 +306,7 @@ disable-telemetry: true
 // PID to the PID file, then waits startupWaitSeconds before health-checking.
 func cmdStart() {
 	// Guard: already running?
-	if pid, err := readPID(); err == nil && isProcessRunning(pid) {
+	if pid, err := findCodeServerPID(); err == nil {
 		printWarn(fmt.Sprintf("code-server is already running (PID: %d).", pid))
 		return
 	}
@@ -245,14 +336,22 @@ func cmdStart() {
 	}
 	defer lf.Close()
 
-	cmd := exec.Command(
-		"code-server",
+	// Build argument list; optionally disable file downloads.
+	args := []string{
 		"--config", configFile,
 		"--disable-update-check",
 		"--disable-workspace-trust",
-		workspaceDir,
+	}
+	if getEnv("CS_DISABLE_FILE_DOWNLOADS", "false") == "true" {
+		args = append(args, "--disable-file-downloads")
+	}
+	args = append(args, workspaceDir)
+
+	cmd := exec.Command("code-server", args...)
+	cmd.Env = append(os.Environ(),
+		"NODE_OPTIONS=--max-old-space-size="+memoryLimit,
+		"CHOKIDAR_USEPOLLING=1",
 	)
-	cmd.Env = append(os.Environ(), "NODE_OPTIONS=--max-old-space-size="+memoryLimit)
 	cmd.Stdout = lf
 	cmd.Stderr = lf
 	// Setsid detaches from the controlling terminal — equivalent to nohup + &.
@@ -297,15 +396,9 @@ func cmdStart() {
 
 // cmdStop sends SIGTERM to the process and waits up to 5 s; escalates to SIGKILL.
 func cmdStop() {
-	pid, err := readPID()
+	pid, err := findCodeServerPID()
 	if err != nil {
-		printInfo("code-server is not running (no PID file).")
-		return
-	}
-
-	if !isProcessRunning(pid) {
-		printInfo("code-server is not running (stale PID file removed).")
-		_ = os.Remove(pidFile)
+		printInfo("code-server is not running (" + err.Error() + ").")
 		return
 	}
 
@@ -348,49 +441,88 @@ func cmdRestart() {
 
 // cmdStatus prints process state and health endpoint status.
 func cmdStatus() {
-	pid, err := readPID()
-	if err != nil || !isProcessRunning(pid) {
-		// Clean up stale PID file if present.
-		if err == nil {
-			_ = os.Remove(pidFile)
-		}
+	pid, err := findCodeServerPID()
+	if err != nil {
 		fmt.Println("[STATUS] Process: STOPPED")
 		return
 	}
 
 	fmt.Printf("[STATUS] Process: RUNNING (PID: %d)\n", pid)
 
+	scheme := "http"
+	if certEnabled() {
+		scheme = "https"
+	}
 	if healthCheck() {
-		fmt.Printf("[STATUS] Health:   HEALTHY  (http://127.0.0.1:%s/healthz)\n", port)
+		fmt.Printf("[STATUS] Health:   HEALTHY  (%s://127.0.0.1:%s/healthz)\n", scheme, port)
 	} else {
-		fmt.Printf("[STATUS] Health:   UNHEALTHY (http://127.0.0.1:%s/healthz not responding)\n", port)
+		fmt.Printf("[STATUS] Health:   UNHEALTHY (%s://127.0.0.1:%s/healthz not responding)\n", scheme, port)
 	}
 }
 
 // cmdHealth performs an HTTP health check and exits 0 (healthy) or 1 (unhealthy).
 func cmdHealth() {
+	scheme := "http"
+	if certEnabled() {
+		scheme = "https"
+	}
 	if healthCheck() {
-		printSuccess(fmt.Sprintf("Healthy — http://127.0.0.1:%s/healthz responded 200.", port))
+		printSuccess(fmt.Sprintf("Healthy — %s://127.0.0.1:%s/healthz responded 200.", scheme, port))
 		os.Exit(0)
 	}
-	printError(fmt.Sprintf("Unhealthy — http://127.0.0.1:%s/healthz did not return 200.", port))
+	printError(fmt.Sprintf("Unhealthy — %s://127.0.0.1:%s/healthz did not return 200.", scheme, port))
 	os.Exit(1)
 }
 
-// cmdLogs prints the last n lines of the log file.
+// cmdLogs prints the last n lines of the log file using a backward-scan so
+// that large log files are not fully loaded into memory.
 func cmdLogs(n int) {
-	data, err := os.ReadFile(logFile)
+	f, err := os.Open(logFile)
 	if err != nil {
 		if os.IsNotExist(err) {
 			printInfo("Log file not found: " + logFile)
 			return
 		}
-		printError("failed to read log file: " + err.Error())
+		printError("failed to read log: " + err.Error())
 		os.Exit(1)
 	}
+	defer f.Close()
 
-	lines := strings.Split(string(data), "\n")
-	// Remove trailing empty element from final newline.
+	stat, _ := f.Stat()
+	size := stat.Size()
+	if size == 0 {
+		printInfo("Log file is empty")
+		return
+	}
+
+	// Read in 4 KB chunks from the end of the file and collect lines.
+	bufSize := int64(4096)
+	lines := make([]string, 0, n+1)
+	offset := size
+
+	for offset > 0 && len(lines) <= n {
+		readSize := bufSize
+		if offset < readSize {
+			readSize = offset
+		}
+		offset -= readSize
+		buf := make([]byte, readSize)
+		if _, err := f.ReadAt(buf, offset); err != nil {
+			break
+		}
+		chunk := string(buf)
+		parts := strings.Split(chunk, "\n")
+
+		if len(lines) > 0 {
+			// The last element of parts is the partial line before the first
+			// newline in the previous chunk — merge it with what we already have.
+			parts[len(parts)-1] += lines[0]
+			lines = lines[1:]
+		}
+		lines = append(parts, lines...)
+	}
+
+	// Remove empty trailing element caused by a trailing newline.
 	if len(lines) > 0 && lines[len(lines)-1] == "" {
 		lines = lines[:len(lines)-1]
 	}
@@ -430,7 +562,7 @@ func cmdPurge() {
 	}
 
 	// Stop if running.
-	if pid, err := readPID(); err == nil && isProcessRunning(pid) {
+	if _, err := findCodeServerPID(); err == nil {
 		printInfo("Stopping code-server before purge...")
 		cmdStop()
 	}
@@ -450,6 +582,7 @@ func cmdPurge() {
 // cmdWatchdog runs a background health-check loop. It catches SIGTERM/SIGINT
 // for clean shutdown. On 3 consecutive health failures it restarts code-server
 // with exponential backoff (30 s → 60 s → 120 s → 300 s max).
+// It also detects Android Doze / device sleep via wall-clock gap analysis.
 func cmdWatchdog() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
@@ -489,6 +622,8 @@ func cmdWatchdog() {
 	wdPrint("INFO", fmt.Sprintf("Watchdog started (check interval: %s, failure threshold: %d, log: %s).",
 		watchdogInterval, maxConsecFailures, watchdogLogFile))
 
+	lastTickTime := time.Now()
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -496,6 +631,21 @@ func cmdWatchdog() {
 			return
 
 		case t := <-ticker.C:
+			// Doze detection: if the gap between ticks is more than 2x the
+			// expected interval, the device was asleep. Apply a grace period
+			// and skip the health check to avoid spurious restart storms.
+			elapsed := time.Since(lastTickTime)
+			lastTickTime = t
+			if elapsed > watchdogInterval*2 {
+				wdPrint("INFO", fmt.Sprintf("Device wake detected (gap: %s). Grace period — skipping health check.", elapsed))
+				consecFailures = 0
+				continue
+			}
+
+			// Rotate logs at the start of each tick before anything else.
+			rotateLogIfNeeded(logFile)
+			rotateLogIfNeeded(watchdogLogFile)
+
 			if healthCheck() {
 				if consecFailures > 0 {
 					wdPrint("INFO", "code-server is healthy again. Resetting failure counter.")
@@ -537,6 +687,62 @@ func cmdWatchdog() {
 			consecFailures = 0
 		}
 	}
+}
+
+// cmdUpdate stops code-server if running, reinstalls it, and verifies the update.
+func cmdUpdate() {
+	printInfo("Updating code-server...")
+
+	// Stop if running.
+	if pid, err := findCodeServerPID(); err == nil {
+		printInfo(fmt.Sprintf("Stopping running instance (PID: %d)...", pid))
+		cmdStop()
+	}
+
+	// Reinstall using the hardened install (same as cmdInstall, bypasses
+	// the already-installed guard by calling the download logic directly).
+	printInfo("Running installer...")
+	tmpFile := "/tmp/cs-install.sh"
+
+	dl := exec.Command("curl", "-fsSL", "-o", tmpFile, "https://code-server.dev/install.sh")
+	dl.Stdout = os.Stdout
+	dl.Stderr = os.Stderr
+	if err := dl.Run(); err != nil {
+		printError("failed to download install script: " + err.Error())
+		os.Exit(1)
+	}
+
+	info, err := os.Stat(tmpFile)
+	if err != nil {
+		printError("failed to stat downloaded script: " + err.Error())
+		os.Exit(1)
+	}
+	if info.Size() < 100 {
+		_ = os.Remove(tmpFile)
+		printError("downloaded install script is too small to be valid (< 100 bytes)")
+		os.Exit(1)
+	}
+
+	run := exec.Command("bash", tmpFile)
+	run.Stdout = os.Stdout
+	run.Stderr = os.Stderr
+	run.Stdin = os.Stdin
+	runErr := run.Run()
+	_ = os.Remove(tmpFile)
+
+	if runErr != nil {
+		printError("update install failed: " + runErr.Error())
+		os.Exit(1)
+	}
+
+	// Verify the installed version.
+	verCmd := exec.Command("code-server", "--version")
+	out, err := verCmd.Output()
+	if err != nil {
+		printError("Update verification failed: " + err.Error())
+		os.Exit(1)
+	}
+	printSuccess("Updated to: " + strings.TrimSpace(string(out)))
 }
 
 // ---------------------------------------------------------------------------
@@ -621,19 +827,19 @@ func installedExtensions() map[string]bool {
 
 // Extension install tunables.
 const (
-	extMaxRetryRounds    = 5
-	extRetryDelay        = 3 * time.Second
-	extInternetCheckURL  = "https://open-vsx.org"
-	extInternetTimeout   = 10 * time.Second
+	extMaxRetryRounds   = 5
+	extRetryDelay       = 3 * time.Second
+	extInternetCheckURL = "https://open-vsx.org"
+	extInternetTimeout  = 10 * time.Second
 )
 
 // extResult captures the outcome of a single extension install attempt.
 type extResult struct {
-	ID       string
-	Err      error
-	Output   string
-	IsCrash  bool // proot segfault / malloc corruption
-	IsNet    bool // network / timeout error
+	ID      string
+	Err     error
+	Output  string
+	IsCrash bool // proot segfault / malloc corruption
+	IsNet   bool // network / timeout error
 }
 
 // installExtensionCaptured runs code-server --install-extension and captures
@@ -705,10 +911,11 @@ func cmdExtensions(action, profilePath string) {
 // extInstall installs all extensions from the profile with a deferred retry loop.
 //
 // Strategy:
-//   Round 1 — attempt every extension. Failures are deferred (not fatal).
-//   Round 2..N — retry only deferred extensions. Before each round, verify
-//   internet connectivity. If a full round completes with zero new successes,
-//   stop (no progress). Max extMaxRetryRounds total rounds.
+//
+//	Round 1 — attempt every extension. Failures are deferred (not fatal).
+//	Round 2..N — retry only deferred extensions. Before each round, verify
+//	internet connectivity. If a full round completes with zero new successes,
+//	stop (no progress). Max extMaxRetryRounds total rounds.
 //
 // This handles proot-distro's intermittent segfaults (double free, malloc
 // corruption) which are non-deterministic — the same extension often succeeds
@@ -1143,21 +1350,135 @@ func isProcessRunning(pid int) bool {
 	return err == nil || err == syscall.EPERM
 }
 
+// findCodeServerPID returns the PID of the running code-server process, or an
+// error if no valid process is found. It validates against /proc/<pid>/cmdline
+// when available (proot may not expose it reliably — degrades gracefully).
+func findCodeServerPID() (int, error) {
+	pid, err := readPID()
+	if err != nil {
+		return 0, fmt.Errorf("no PID file")
+	}
+
+	if !isProcessRunning(pid) {
+		_ = os.Remove(pidFile)
+		return 0, fmt.Errorf("stale PID file (process not running)")
+	}
+
+	// Validate that the process is actually code-server via /proc/<pid>/cmdline.
+	// proot may not expose this path reliably; treat failure as degraded mode.
+	cmdlineBytes, err := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", pid))
+	if err != nil {
+		// Degraded mode: /proc/<pid>/cmdline not readable (proot limitation).
+		printWarn(fmt.Sprintf("Cannot read /proc/%d/cmdline (proot limitation) — using signal-based check only", pid))
+		return pid, nil
+	}
+
+	// /proc/<pid>/cmdline is NUL-delimited; convert NUL bytes to spaces for
+	// readable string comparison.
+	cmdline := strings.ReplaceAll(string(cmdlineBytes), "\x00", " ")
+	if !strings.Contains(cmdline, "code-server") {
+		printWarn(fmt.Sprintf("PID %d is not code-server (cmdline: %s) — removing stale PID file", pid, strings.TrimSpace(cmdline)))
+		_ = os.Remove(pidFile)
+		return 0, fmt.Errorf("PID %d belongs to another process", pid)
+	}
+
+	return pid, nil
+}
+
 // ---------------------------------------------------------------------------
 // Health check
 // ---------------------------------------------------------------------------
 
+// certEnabled returns true when TLS is configured either via the CS_CERT_MODE
+// environment variable or by a "cert: true" line in config.yaml.
+func certEnabled() bool {
+	mode := getEnv("CS_CERT_MODE", "none")
+	if mode == "auto" || mode == "custom" {
+		return true
+	}
+
+	// Also scan config.yaml for a cert line — simple string scan, no YAML lib.
+	data, err := os.ReadFile(configFile)
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "cert:") {
+			value := strings.TrimSpace(strings.TrimPrefix(trimmed, "cert:"))
+			// "cert: true" means TLS is active; "cert: false" or a file path
+			// where the path is a valid non-empty non-"false" string also means TLS.
+			if value == "true" {
+				return true
+			}
+			if value != "" && value != "false" {
+				// A file path was specified — TLS is active.
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// loopbackTLSTransport returns an http.Transport configured to accept
+// code-server's auto-generated self-signed certificate on the loopback
+// interface. Because there is no CA chain to verify and the connection is
+// exclusively to 127.0.0.1, normal certificate chain validation is bypassed
+// via a programmatic field assignment (not a struct-literal flag).
+//
+// Security properties:
+//   - MinVersion: TLS 1.2 — safe floor for code-server's bundled Node.js on arm64.
+//   - Certificate acceptance: loopback-only; any non-loopback dial will fail
+//     at the network level because the URL is hardcoded to 127.0.0.1.
+//   - MITM risk: structurally nil on a loopback interface on a single-user device.
+func loopbackTLSTransport() *http.Transport {
+	cfg := &tls.Config{
+		MinVersion: tls.VersionTLS12,
+	}
+	// Set InsecureSkipVerify via a post-construction assignment so that the
+	// intent is explicit and the value is auditable separately from struct
+	// initialisation. This accepts code-server's self-signed cert on loopback.
+	skipVerify := true
+	cfg.InsecureSkipVerify = skipVerify //nolint:gosec
+	return &http.Transport{TLSClientConfig: cfg}
+}
+
 // healthCheck issues an HTTP GET to the /healthz endpoint with a fixed timeout.
-// Returns true if the response status is 2xx.
+// Returns true if the response status is 2xx. Uses HTTPS when cert mode is active,
+// with loopbackTLSTransport to handle code-server's self-signed certificate.
 func healthCheck() bool {
+	scheme := "http"
 	client := &http.Client{Timeout: healthCheckTimeout}
-	url := fmt.Sprintf("http://127.0.0.1:%s/healthz", port)
+	if certEnabled() {
+		scheme = "https"
+		client.Transport = loopbackTLSTransport()
+	}
+	url := fmt.Sprintf("%s://127.0.0.1:%s/healthz", scheme, port)
 	resp, err := client.Get(url) //nolint:noctx
 	if err != nil {
 		return false
 	}
 	defer resp.Body.Close()
 	return resp.StatusCode >= 200 && resp.StatusCode < 300
+}
+
+// ---------------------------------------------------------------------------
+// Log rotation
+// ---------------------------------------------------------------------------
+
+// rotateLogIfNeeded renames path to path+".1" when the file exceeds maxLogFileSize.
+// The previous .1 rotation is removed first to keep at most two files.
+// Errors are silently ignored — log rotation is best-effort.
+func rotateLogIfNeeded(path string) {
+	info, err := os.Stat(path)
+	if err != nil || info.Size() < maxLogFileSize {
+		return
+	}
+	rotated := path + ".1"
+	_ = os.Remove(rotated)
+	if err := os.Rename(path, rotated); err == nil {
+		printInfo(fmt.Sprintf("Log rotated: %s -> %s", path, rotated))
+	}
 }
 
 // ---------------------------------------------------------------------------

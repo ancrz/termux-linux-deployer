@@ -18,6 +18,24 @@ ENV_FILE="$PROJECT_DIR/.env"
 # --- Load .env ---------------------------------------------------------------
 
 if [[ -f "$ENV_FILE" ]]; then
+    # Validate .env before sourcing (inline — cannot source common.sh from Termux)
+    INVALID_LINES=0
+    while IFS= read -r line || [ -n "$line" ]; do
+        [ -z "$line" ] || [[ "$line" =~ ^[[:space:]]*# ]] && continue
+        if ! [[ "$line" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]]; then
+            echo "[WARN] .env: invalid line: $line"
+            INVALID_LINES=$((INVALID_LINES + 1))
+        fi
+        value="${line#*=}"
+        if [[ "$value" =~ \`|\$\( ]]; then
+            echo "[ERROR] .env: dangerous pattern: $line"
+            INVALID_LINES=$((INVALID_LINES + 1))
+        fi
+    done < "$ENV_FILE"
+    if [ "$INVALID_LINES" -gt 0 ]; then
+        echo "[ERROR] .env has $INVALID_LINES invalid line(s). Fix before continuing."
+        exit 1
+    fi
     # Export all variables found in .env into the current shell.
     # set -a causes subsequent variable assignments to be marked for export.
     set -a
@@ -43,6 +61,11 @@ FORWARD_VARS=(
     GITHUB_USERNAME
     CS_PASSWORD
     CS_PORT
+    CS_CERT_MODE
+    CS_CERT_FILE
+    CS_HEARTBEAT_INTERVAL
+    CS_MEMORY_LIMIT
+    CS_DISABLE_FILE_DOWNLOADS
     GIT_USER_NAME
     GIT_USER_EMAIL
     GOOGLE_CLIENT_ID
@@ -73,5 +96,9 @@ done
 # space-separated '--env KEY=VAL' arguments that must word-split into
 # distinct argv entries for proot-distro. Quoting would pass them as
 # a single argument and break all env var forwarding.
+# IMPORTANT: --no-kill-on-exit keeps code-server alive when you exit this shell.
+# LIMITATION: This does NOT survive Android killing Termux (OOM, swipe-away).
+# For background persistence, run 'termux-wake-lock' before starting sessions.
+# If Termux is killed, csm watchdog will recover code-server on next login.
 # shellcheck disable=SC2086
-exec proot-distro login ubuntu $ENV_FLAGS "$@"
+exec proot-distro login ubuntu --no-kill-on-exit $ENV_FLAGS "$@"
