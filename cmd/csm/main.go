@@ -5,21 +5,23 @@
 // manage-codeserver.sh with a statically-compiled, signal-safe process manager.
 //
 // Subcommands:
-//   install   – Download and install code-server via the official install script.
-//   config    – Write config.yaml and create all required directories.
-//   start     – Start code-server as a detached background process.
-//   stop      – Gracefully stop code-server (SIGTERM → SIGKILL after 5 s).
-//   restart   – Stop then start.
-//   status    – Report process state and health.
-//   health    – HTTP health-check (exits 0=healthy / 1=unhealthy).
-//   logs      – Print the last N lines of the log file (default 50).
-//   purge     – Interactively remove all config/data/extension directories.
-//   watchdog  – Background loop: restart code-server on repeated health failures.
+//   install    – Download and install code-server via the official install script.
+//   config     – Write config.yaml and create all required directories.
+//   start      – Start code-server as a detached background process.
+//   stop       – Gracefully stop code-server (SIGTERM → SIGKILL after 5 s).
+//   restart    – Stop then start.
+//   status     – Report process state and health.
+//   health     – HTTP health-check (exits 0=healthy / 1=unhealthy).
+//   logs       – Print the last N lines of the log file (default 50).
+//   purge      – Interactively remove all config/data/extension directories.
+//   watchdog   – Background loop: restart code-server on repeated health failures.
+//   extensions – Profile-based extension management (install/list/sync).
 package main
 
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -97,6 +99,16 @@ func main() {
 		cmdPurge()
 	case "watchdog":
 		cmdWatchdog()
+	case "extensions":
+		extSub := "install"
+		if len(os.Args) >= 3 {
+			extSub = os.Args[2]
+		}
+		profilePath := ""
+		if len(os.Args) >= 4 {
+			profilePath = os.Args[3]
+		}
+		cmdExtensions(extSub, profilePath)
 	default:
 		printError("unknown subcommand: " + subcmd)
 		printUsage()
@@ -108,16 +120,19 @@ func printUsage() {
 	fmt.Fprintf(os.Stderr, `Usage: csm <subcommand> [args]
 
 Subcommands:
-  install          Download and install code-server
-  config           Create directories and write config.yaml
-  start            Start code-server in the background
-  stop             Stop a running code-server process
-  restart          Stop then start
-  status           Show process state and health
-  health           HTTP health-check (exit 0=ok, 1=fail)
-  logs [N]         Print last N lines of log file (default 50)
-  purge            Remove all code-server config/data (destructive)
-  watchdog         Background watchdog loop
+  install                        Download and install code-server
+  config                         Create directories and write config.yaml
+  start                          Start code-server in the background
+  stop                           Stop a running code-server process
+  restart                        Stop then start
+  status                         Show process state and health
+  health                         HTTP health-check (exit 0=ok, 1=fail)
+  logs [N]                       Print last N lines of log file (default 50)
+  purge                          Remove all code-server config/data (destructive)
+  watchdog                       Background watchdog loop
+  extensions install [profile]   Install extensions from profile JSON
+  extensions list                List installed extensions
+  extensions sync [profile]      Install missing, report extras
 
 Environment variables:
   CS_PASSWORD      Password written into config.yaml
@@ -481,6 +496,297 @@ func cmdWatchdog() {
 			consecFailures = 0
 		}
 	}
+}
+
+// ---------------------------------------------------------------------------
+// Extension profile management
+// ---------------------------------------------------------------------------
+
+// extensionProfile represents the profile-extensions.json schema.
+type extensionProfile struct {
+	Profile     string                       `json:"profile"`
+	Description string                       `json:"description"`
+	Marketplace string                       `json:"marketplace"`
+	Categories  map[string]extensionCategory `json:"categories"`
+	Excluded    struct {
+		Reason     string   `json:"reason"`
+		Extensions []string `json:"extensions"`
+	} `json:"excluded"`
+}
+
+type extensionCategory struct {
+	Description string   `json:"description"`
+	Extensions  []string `json:"extensions"`
+}
+
+// defaultProfilePath returns the default location of the profile JSON.
+// It searches: (1) explicit path, (2) deployer config, (3) home config.
+func defaultProfilePath(explicit string) string {
+	if explicit != "" {
+		return explicit
+	}
+	// Try deployer config dir (when run from the project)
+	candidates := []string{
+		filepath.Join(home, "termux-linux-deployer", "config", "csm", "profile-extensions.json"),
+		filepath.Join(home, "deployer", "config", "csm", "profile-extensions.json"),
+		filepath.Join(configDir, "profile-extensions.json"),
+	}
+	for _, c := range candidates {
+		if _, err := os.Stat(c); err == nil {
+			return c
+		}
+	}
+	return candidates[0] // return first as default even if missing
+}
+
+// loadProfile reads and parses the extension profile JSON.
+func loadProfile(path string) (*extensionProfile, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read profile %s: %w", path, err)
+	}
+	var profile extensionProfile
+	if err := json.Unmarshal(data, &profile); err != nil {
+		return nil, fmt.Errorf("failed to parse profile: %w", err)
+	}
+	return &profile, nil
+}
+
+// profileExtensionIDs returns all extension IDs from all categories, flattened.
+func (p *extensionProfile) allExtensionIDs() []string {
+	var ids []string
+	for _, cat := range p.Categories {
+		ids = append(ids, cat.Extensions...)
+	}
+	return ids
+}
+
+// installedExtensions runs code-server --list-extensions and returns a set.
+func installedExtensions() map[string]bool {
+	result := make(map[string]bool)
+	cmd := exec.Command("code-server", "--list-extensions")
+	out, err := cmd.Output()
+	if err != nil {
+		return result
+	}
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		ext := strings.TrimSpace(line)
+		if ext != "" {
+			result[strings.ToLower(ext)] = true
+		}
+	}
+	return result
+}
+
+// installExtension runs code-server --install-extension for a single extension.
+func installExtension(id string) error {
+	cmd := exec.Command("code-server", "--install-extension", id, "--force")
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+// cmdExtensions dispatches the extensions subcommand.
+func cmdExtensions(action, profilePath string) {
+	if _, err := exec.LookPath("code-server"); err != nil {
+		printError("code-server not found on PATH. Run 'csm install' first.")
+		os.Exit(1)
+	}
+
+	switch action {
+	case "install":
+		extInstall(profilePath)
+	case "list":
+		extList()
+	case "sync":
+		extSync(profilePath)
+	default:
+		printError("unknown extensions action: " + action)
+		fmt.Fprintln(os.Stderr, "Usage: csm extensions [install|list|sync] [profile.json]")
+		os.Exit(1)
+	}
+}
+
+// extInstall installs all extensions from the profile that are not yet installed.
+func extInstall(profilePath string) {
+	path := defaultProfilePath(profilePath)
+	profile, err := loadProfile(path)
+	if err != nil {
+		printError(err.Error())
+		os.Exit(1)
+	}
+
+	printInfo(fmt.Sprintf("Profile: %s (%s)", profile.Profile, profile.Description))
+	printInfo(fmt.Sprintf("Source:  %s", path))
+
+	installed := installedExtensions()
+	wanted := profile.allExtensionIDs()
+
+	var toInstall []string
+	for _, ext := range wanted {
+		if !installed[strings.ToLower(ext)] {
+			toInstall = append(toInstall, ext)
+		}
+	}
+
+	if len(toInstall) == 0 {
+		printSuccess(fmt.Sprintf("All %d profile extensions are already installed.", len(wanted)))
+		return
+	}
+
+	printInfo(fmt.Sprintf("Installing %d/%d extensions (%d already installed)...",
+		len(toInstall), len(wanted), len(wanted)-len(toInstall)))
+	fmt.Println()
+
+	success, failed := 0, 0
+	for _, cat := range sortedCategories(profile) {
+		catData := profile.Categories[cat]
+		headerPrinted := false
+		for _, ext := range catData.Extensions {
+			if installed[strings.ToLower(ext)] {
+				continue
+			}
+			if !headerPrinted {
+				fmt.Printf("\n  [%s] %s\n", cat, catData.Description)
+				headerPrinted = true
+			}
+			fmt.Printf("    Installing %s... ", ext)
+			if err := installExtension(ext); err != nil {
+				fmt.Println("FAILED")
+				failed++
+			} else {
+				fmt.Println("OK")
+				success++
+			}
+		}
+	}
+
+	fmt.Println()
+	printInfo(fmt.Sprintf("Results: %d installed, %d failed, %d were already present",
+		success, failed, len(wanted)-len(toInstall)))
+	if failed > 0 {
+		printWarn("Some extensions may not be available on Open-VSX marketplace.")
+	}
+	printSuccess("Extension install complete.")
+}
+
+// extList prints all currently installed code-server extensions.
+func extList() {
+	installed := installedExtensions()
+	if len(installed) == 0 {
+		printInfo("No extensions installed.")
+		return
+	}
+	printInfo(fmt.Sprintf("%d extension(s) installed:", len(installed)))
+	for ext := range installed {
+		fmt.Println("  " + ext)
+	}
+}
+
+// extSync installs missing profile extensions and reports extras not in profile.
+func extSync(profilePath string) {
+	path := defaultProfilePath(profilePath)
+	profile, err := loadProfile(path)
+	if err != nil {
+		printError(err.Error())
+		os.Exit(1)
+	}
+
+	printInfo(fmt.Sprintf("Syncing against profile: %s", profile.Profile))
+
+	installed := installedExtensions()
+	wanted := profile.allExtensionIDs()
+
+	// Build lookup of wanted (lowercase)
+	wantedSet := make(map[string]bool)
+	for _, ext := range wanted {
+		wantedSet[strings.ToLower(ext)] = true
+	}
+
+	// Find missing
+	var missing []string
+	for _, ext := range wanted {
+		if !installed[strings.ToLower(ext)] {
+			missing = append(missing, ext)
+		}
+	}
+
+	// Find extras (installed but not in profile and not excluded)
+	excludedSet := make(map[string]bool)
+	for _, ext := range profile.Excluded.Extensions {
+		excludedSet[strings.ToLower(ext)] = true
+	}
+	var extras []string
+	for ext := range installed {
+		if !wantedSet[ext] && !excludedSet[ext] {
+			extras = append(extras, ext)
+		}
+	}
+
+	// Report
+	fmt.Println()
+	if len(missing) > 0 {
+		printWarn(fmt.Sprintf("%d extension(s) missing from profile:", len(missing)))
+		for _, ext := range missing {
+			fmt.Println("  + " + ext)
+		}
+		fmt.Println()
+
+		// Install missing
+		printInfo("Installing missing extensions...")
+		for _, ext := range missing {
+			fmt.Printf("  Installing %s... ", ext)
+			if err := installExtension(ext); err != nil {
+				fmt.Println("FAILED")
+			} else {
+				fmt.Println("OK")
+			}
+		}
+	} else {
+		printSuccess("No missing extensions.")
+	}
+
+	fmt.Println()
+	if len(extras) > 0 {
+		printInfo(fmt.Sprintf("%d extension(s) installed but not in profile:", len(extras)))
+		for _, ext := range extras {
+			fmt.Println("  ? " + ext)
+		}
+		printInfo("These won't be removed. Add them to the profile or ignore.")
+	} else {
+		printSuccess("All installed extensions match the profile.")
+	}
+
+	printSuccess("Sync complete.")
+}
+
+// sortedCategories returns category keys in a stable order for display.
+func sortedCategories(p *extensionProfile) []string {
+	// Deterministic order: lang first, then web, productivity, appearance
+	order := []string{
+		"lang-python", "lang-go", "lang-config",
+		"web", "productivity", "appearance",
+	}
+	var result []string
+	for _, key := range order {
+		if _, ok := p.Categories[key]; ok {
+			result = append(result, key)
+		}
+	}
+	// Add any categories not in the predefined order
+	for key := range p.Categories {
+		found := false
+		for _, o := range order {
+			if key == o {
+				found = true
+				break
+			}
+		}
+		if !found {
+			result = append(result, key)
+		}
+	}
+	return result
 }
 
 // ---------------------------------------------------------------------------

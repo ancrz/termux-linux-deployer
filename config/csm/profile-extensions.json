@@ -1,0 +1,70 @@
+{
+  "profile": "ancrz-dev",
+  "description": "Personal development stack — Samsung Tab S10 Ultra / proot Ubuntu / code-server",
+  "source": "Extracted from ~/.antigravity/extensions/extensions.json (2026-04-04)",
+  "marketplace": "open-vsx",
+  "categories": {
+    "lang-python": {
+      "description": "Python development",
+      "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-python-envs",
+        "ms-python.black-formatter",
+        "ms-python.mypy-type-checker",
+        "charliermarsh.ruff"
+      ]
+    },
+    "lang-go": {
+      "description": "Go development",
+      "extensions": [
+        "golang.go"
+      ]
+    },
+    "lang-config": {
+      "description": "Config file support",
+      "extensions": [
+        "tamasfe.even-better-toml",
+        "redhat.vscode-yaml",
+        "mechatroner.rainbow-csv"
+      ]
+    },
+    "web": {
+      "description": "Web development (JS/TS/React/Tailwind)",
+      "extensions": [
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode",
+        "bradlc.vscode-tailwindcss",
+        "dsznajder.es7-react-js-snippets",
+        "ritwickdey.liveserver"
+      ]
+    },
+    "productivity": {
+      "description": "Workflow and productivity",
+      "extensions": [
+        "eamodio.gitlens",
+        "alefragnani.project-manager",
+        "formulahendry.code-runner",
+        "usernamehw.errorlens",
+        "rangav.vscode-thunder-client",
+        "timonwong.shellcheck"
+      ]
+    },
+    "appearance": {
+      "description": "Icons and themes",
+      "extensions": [
+        "pkief.material-icon-theme"
+      ]
+    }
+  },
+  "excluded": {
+    "reason": "Not compatible with proot Ubuntu (no Docker/K8s/browser-dependent)",
+    "extensions": [
+      "ms-azuretools.vscode-docker",
+      "ms-azuretools.vscode-containers",
+      "ms-kubernetes-tools.vscode-kubernetes-tools",
+      "ms-python.debugpy",
+      "google.geminicodeassist",
+      "google.gemini-cli-vscode-ide-companion"
+    ]
+  }
+}
