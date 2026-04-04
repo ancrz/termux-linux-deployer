@@ -46,8 +46,8 @@ graph TB
             M["sequential-thinking<br/>github-mcp-server<br/>skill-swarm<br/>google-workspace-mcp"]
         end
 
-        subgraph "L6: Auth + Extensions"
-            N["gh CLI + git credentials<br/>profile-based extensions"]
+        subgraph "L6: Session + Auth + Extensions"
+            N["tmux (scroll + attach)<br/>gh CLI + git credentials<br/>profile-based extensions"]
         end
     end
 
@@ -72,7 +72,8 @@ flowchart LR
         direction LR
         ND["setup-node"] --> GM["setup-gemini"]
         ND --> CL["setup-claude"]
-        CSM["setup-csm"] --> EX["setup-extensions"]
+        CSM["setup-csm"] --> TM["setup-tmux"]
+        TM --> EX["setup-extensions"]
         CL --> PL["setup-pipeline"]
         CL --> MCP["setup-mcp"]
         MCP --> CR["setup-credentials"]
@@ -117,34 +118,54 @@ bash scripts/termux/login-ubuntu.sh
 bash /root/deployer/scripts/install-all.sh
 ```
 
-### 4. Start code-server
+### 4. Start code-server (with tmux for persistence)
 
 ```bash
-csm start                   # start code-server
-csm status                  # verify it's running and healthy
+# Create a persistent tmux session
+tmux new -s dev
+
+# Inside tmux: start code-server
+csm start
 # Access via browser at http://localhost:8443
+
+# Detach from tmux (code-server keeps running)
+# Press: Ctrl-a then d
+
+# Re-attach later (even after closing Termux)
+tmux attach -t dev
 ```
 
 ### Daily Usage
 
 ```bash
-# Start
-csm start
+# --- tmux sessions ---
+tmux new -s dev             # create session
+tmux attach -t dev          # re-attach
+tmux ls                     # list sessions
+# Ctrl-a + [               # scroll mode (vi keys or arrows)
+# Ctrl-a + d               # detach
 
-# Stop
-csm stop
+# --- code-server ---
+csm start                   # start
+csm stop                    # stop
+csm restart                 # restart
+csm watchdog                # supervisor with auto-restart
+csm status                  # process state + health
+csm logs                    # view logs
+```
 
-# Restart
-csm restart
+### tmux + code-server (recommended workflow)
 
-# Start with auto-restart supervisor (keeps code-server alive)
-csm watchdog
+```mermaid
+flowchart LR
+    T["Termux"] -->|"tmux new -s dev"| S["tmux session"]
+    S -->|"csm start"| CS["code-server :8443"]
+    S -->|"Ctrl-a d"| D["Detached"]
+    D -->|"tmux attach -t dev"| S
+    CS -->|"browser"| B["http://localhost:8443"]
 
-# Check state
-csm status
-
-# View logs
-csm logs
+    style S fill:#2ecc71
+    style CS fill:#4a9eff
 ```
 
 ## Code-Server Manager (csm)
@@ -309,6 +330,7 @@ termux-linux-deployer/
 │   │   ├── setup-csm.sh              Go binary + code-server
 │   │   ├── setup-pipeline.sh          agents + settings merge
 │   │   ├── setup-mcp.sh              MCP servers
+│   │   ├── setup-tmux.sh              tmux config (scroll + attach)
 │   │   ├── setup-credentials.sh       git + gh auth
 │   ��   └── setup-extensions.sh        profile-based extensions
 │   └── install-all.sh                 orchestrator
@@ -316,7 +338,8 @@ termux-linux-deployer/
 ├── config/
 │   ├── claude/                        settings.json + CLAUDE.md + agents/
 │   ├── gemini/                        settings.json + GEMINI.md + agents
-│   └── csm/                          profile-extensions.json
+│   ├── csm/                          profile-extensions.json
+│   └── tmux/                          tmux.conf
 ├── docs/
 │   ├── pipeline-management.md         full operational reference
 │   ├── rust-proot-known-issue.md      Rust segfault documentation

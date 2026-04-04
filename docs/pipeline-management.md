@@ -32,8 +32,9 @@ everything after `base-setup.sh` provides the foundation.
      ├─ 3d. setup-csm.sh           Compile Go binary + install code-server
      ├─ 3e. setup-pipeline.sh      Deploy agents + merge settings.json
      ├─ 3f. setup-mcp.sh           GitHub MCP + skill-swarm + registration
-     ├─ 3g. setup-credentials.sh   Git identity, gh auth, credential store
-     └─ 3h. setup-extensions.sh    Profile-based extension install with retry
+     ├─ 3g. setup-tmux.sh          tmux config (scroll, attach, session persistence)
+     ├─ 3h. setup-extensions.sh    Profile-based extension install with retry
+     └─ 3i. setup-credentials.sh   Git identity, gh auth, credential store
 ```
 
 *Rust skipped due to proot segfault — see `docs/rust-proot-known-issue.md`.
@@ -222,6 +223,55 @@ with proot (Docker, K8s, browser-dependent).
 
 ---
 
+## tmux Session Management
+
+tmux provides session persistence for code-server and CLI tools.
+Without tmux, closing the Termux app kills all background processes.
+
+### Why tmux
+
+On Android, Termux processes are killed when the app is backgrounded
+(especially under aggressive battery management). tmux keeps sessions
+alive so code-server and watchdog survive app switching.
+
+### Configuration (`config/tmux/tmux.conf`)
+
+| Setting | Value | Reason |
+|---------|-------|--------|
+| Prefix | `Ctrl-a` | Easier on tablet keyboards than default `Ctrl-b` |
+| Mouse | enabled | Scroll, select panes, resize with touch |
+| Scrollback | 50,000 lines | Large buffer for log viewing |
+| Copy mode | vi keys | Keyboard navigation in scroll mode |
+| Escape time | 10ms | Eliminates delay on Esc key |
+
+### Recommended Workflow
+
+```
+# Start persistent session
+tmux new -s dev
+
+# Inside tmux:
+csm start                    # code-server
+csm watchdog &               # supervisor in background
+
+# Detach: Ctrl-a + d
+# Re-attach later: tmux attach -t dev
+# Scroll: Ctrl-a + [ (vi keys to navigate, q to exit)
+```
+
+### Key Bindings
+
+| Binding | Action |
+|---------|--------|
+| `Ctrl-a + d` | Detach session |
+| `Ctrl-a + [` | Enter scroll/copy mode |
+| `Ctrl-a + \|` | Split pane horizontal |
+| `Ctrl-a + -` | Split pane vertical |
+| `Alt + arrows` | Navigate panes (no prefix) |
+| `Ctrl-a + r` | Reload config |
+
+---
+
 ## Agent Pipeline (Topos Integrity Protocol)
 
 5-stage pipeline deployed to both Claude Code and Gemini CLI:
@@ -286,5 +336,6 @@ Source of truth: `.env.example` in repo.
 /root/.local/share/vscode-extensions/  Extensions
 /root/.local/share/skill-swarm/    skill-swarm installation
 /root/.env                         Environment variables
+/root/.tmux.conf                   tmux configuration (scroll, mouse, prefix)
 /root/home/Documents/              Workspace root (code-server opens here)
 ```
