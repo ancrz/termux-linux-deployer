@@ -47,10 +47,29 @@ else
     log_warn "CLAUDE.md not found in $CLAUDE_CONFIG_SRC — skipping"
 fi
 
-# settings.json: Claude Code CLI settings.
+# settings.json: Claude Code CLI settings + MCP servers.
+# Uses jq merge: source config is the base, existing user config is overlaid.
+# This preserves MCP servers registered via 'claude mcp add' while ensuring
+# the source plugins/MCPs are always present. envsubst replaces token placeholders.
 if [[ -f "$CLAUDE_CONFIG_SRC/settings.json" ]]; then
-    cp "$CLAUDE_CONFIG_SRC/settings.json" "$CLAUDE_TARGET/settings.json"
-    log_success "Deployed Claude settings.json"
+    if validate_cmd "envsubst" && [[ -n "${GITHUB_PERSONAL_ACCESS_TOKEN:-}" ]]; then
+        SOURCE_JSON="$(envsubst < "$CLAUDE_CONFIG_SRC/settings.json")"
+    else
+        SOURCE_JSON="$(cat "$CLAUDE_CONFIG_SRC/settings.json")"
+        if [[ -z "${GITHUB_PERSONAL_ACCESS_TOKEN:-}" ]]; then
+            log_warn "GITHUB_PERSONAL_ACCESS_TOKEN not set — MCP tokens will have placeholders"
+        fi
+    fi
+
+    if [[ -f "$CLAUDE_TARGET/settings.json" ]] && validate_cmd "jq"; then
+        # Merge: source * existing → source keys win, existing extras preserved
+        EXISTING_JSON="$(cat "$CLAUDE_TARGET/settings.json")"
+        echo "$EXISTING_JSON" | jq -s '.[0] * .[1]' - <(echo "$SOURCE_JSON") > "$CLAUDE_TARGET/settings.json"
+        log_success "Merged Claude settings.json (preserved existing + applied source)"
+    else
+        echo "$SOURCE_JSON" > "$CLAUDE_TARGET/settings.json"
+        log_success "Deployed Claude settings.json (fresh install)"
+    fi
 else
     log_warn "Claude settings.json not found — skipping"
 fi
