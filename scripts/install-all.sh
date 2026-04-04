@@ -88,6 +88,7 @@ run_step "setup-claude.sh"      "Claude Code"
 run_step "setup-csm.sh"         "Code-Server Manager (csm)"
 run_step "setup-pipeline.sh"    "Pipeline Agent Configs"
 run_step "setup-mcp.sh"         "MCP Servers"
+run_step "setup-tmux.sh"        "tmux Session Manager"
 run_step "setup-extensions.sh"  "Code-Server Extensions"
 run_step "setup-credentials.sh" "Credentials & GitHub Auth"
 
