@@ -61,6 +61,12 @@ const (
 	startupWaitSeconds = 5
 )
 
+// Log rotation constants.
+const (
+	logMaxBytes   = 100 * 1024 * 1024 // 100 MB per file
+	logMaxBackups = 7                  // keep 7 rotated files
+)
+
 // ---------------------------------------------------------------------------
 // Entry point
 // ---------------------------------------------------------------------------
@@ -88,13 +94,17 @@ func main() {
 	case "health":
 		cmdHealth()
 	case "logs":
-		n := 50
-		if len(os.Args) >= 3 {
-			if v, err := strconv.Atoi(os.Args[2]); err == nil && v > 0 {
-				n = v
+		if len(os.Args) >= 3 && os.Args[2] == "rotate" {
+			rotateLogs()
+		} else {
+			n := 50
+			if len(os.Args) >= 3 {
+				if v, err := strconv.Atoi(os.Args[2]); err == nil && v > 0 {
+					n = v
+				}
 			}
+			cmdLogs(n)
 		}
-		cmdLogs(n)
 	case "purge":
 		cmdPurge()
 	case "watchdog":
@@ -128,6 +138,7 @@ Subcommands:
   status                         Show process state and health
   health                         HTTP health-check (exit 0=ok, 1=fail)
   logs [N]                       Print last N lines of log file (default 50)
+  logs rotate                    Rotate logs if over 100MB (keeps 7 backups)
   purge                          Remove all code-server config/data (destructive)
   watchdog                       Background watchdog loop
   extensions install [profile]   Install extensions from profile JSON
@@ -220,6 +231,9 @@ func cmdStart() {
 		printError("config.yaml not found. Run 'csm config' first.")
 		os.Exit(1)
 	}
+
+	// Auto-rotate log before starting (prevents unbounded growth).
+	_ = rotateLog(logFile)
 
 	printInfo("Starting code-server...")
 
@@ -440,8 +454,12 @@ func cmdWatchdog() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
 
-	// Open watchdog log for persistent logging (append mode).
+	// Auto-rotate logs before starting watchdog.
 	watchdogLogFile := filepath.Join(configDir, "watchdog.log")
+	_ = rotateLog(watchdogLogFile)
+	_ = rotateLog(logFile)
+
+	// Open watchdog log for persistent logging (append mode).
 	wdLog, err := os.OpenFile(watchdogLogFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o640)
 	if err != nil {
 		printWarn("Could not open watchdog log: " + err.Error() + " — logging to stdout only")
@@ -998,6 +1016,96 @@ func sortedCategories(p *extensionProfile) []string {
 		}
 	}
 	return result
+}
+
+// ---------------------------------------------------------------------------
+// Log rotation
+// ---------------------------------------------------------------------------
+
+// rotateLog rotates a log file if it exceeds logMaxBytes.
+// Rotation scheme: file.log → file.log.1 → file.log.2 → ... → file.log.N
+// Oldest file (file.log.N where N >= logMaxBackups) is deleted.
+func rotateLog(path string) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil // nothing to rotate
+		}
+		return err
+	}
+
+	if info.Size() < logMaxBytes {
+		return nil // under limit
+	}
+
+	// Shift existing backups: .7 → delete, .6 → .7, ... .1 → .2
+	for i := logMaxBackups; i >= 1; i-- {
+		src := fmt.Sprintf("%s.%d", path, i)
+		if i == logMaxBackups {
+			os.Remove(src) // delete oldest
+			continue
+		}
+		dst := fmt.Sprintf("%s.%d", path, i+1)
+		os.Rename(src, dst) // shift up (ignore errors for missing files)
+	}
+
+	// Current → .1
+	if err := os.Rename(path, path+".1"); err != nil {
+		return fmt.Errorf("failed to rotate %s: %w", path, err)
+	}
+
+	return nil
+}
+
+// rotateLogs rotates all managed log files (code-server + watchdog).
+func rotateLogs() {
+	watchdogLog := filepath.Join(configDir, "watchdog.log")
+	for _, lf := range []string{logFile, watchdogLog} {
+		info, err := os.Stat(lf)
+		if err != nil {
+			continue
+		}
+		printInfo(fmt.Sprintf("%s: %s", filepath.Base(lf), humanSize(info.Size())))
+		if err := rotateLog(lf); err != nil {
+			printError("rotation failed: " + err.Error())
+		} else if info.Size() >= logMaxBytes {
+			printSuccess(fmt.Sprintf("%s rotated (was %s, limit %s)",
+				filepath.Base(lf), humanSize(info.Size()), humanSize(logMaxBytes)))
+		} else {
+			printInfo(fmt.Sprintf("%s under limit (%s/%s) — no rotation needed",
+				filepath.Base(lf), humanSize(info.Size()), humanSize(logMaxBytes)))
+		}
+	}
+
+	// Report backup count
+	watchdogLog = filepath.Join(configDir, "watchdog.log")
+	for _, lf := range []string{logFile, watchdogLog} {
+		count := 0
+		for i := 1; i <= logMaxBackups; i++ {
+			if _, err := os.Stat(fmt.Sprintf("%s.%d", lf, i)); err == nil {
+				count++
+			}
+		}
+		if count > 0 {
+			printInfo(fmt.Sprintf("%s: %d backup(s) on disk", filepath.Base(lf), count))
+		}
+	}
+
+	printSuccess(fmt.Sprintf("Log rotation complete (max %s/file, max %d backups)",
+		humanSize(logMaxBytes), logMaxBackups))
+}
+
+func humanSize(b int64) string {
+	switch {
+	case b >= 1024*1024*1024:
+		return fmt.Sprintf("%.1f GB", float64(b)/(1024*1024*1024))
+	case b >= 1024*1024:
+		return fmt.Sprintf("%.1f MB", float64(b)/(1024*1024))
+	case b >= 1024:
+		return fmt.Sprintf("%.1f KB", float64(b)/1024)
+	default:
+		return fmt.Sprintf("%d B", b)
+	}
 }
 
 // ---------------------------------------------------------------------------
