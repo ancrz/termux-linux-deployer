@@ -1,8 +1,7 @@
 # Environment secrets
 .env
 
-# Reference scripts (local only, from Google Drive)
-docs/
+# Reference scripts from Google Drive (functional originals, RE source)
 
 # Go binary
 cmd/csm/csm
