@@ -66,15 +66,22 @@ run_step() {
 #
 # Dependency graph:
 #
-#   base-setup.sh ──► setup-node.sh ──► setup-gemini.sh
-#         │                         ──► setup-claude.sh
-#         ├──► setup-csm.sh         (requires Go)
+#   [install-ubuntu.sh runs base-setup.sh — provides Go, UV, system packages]
+#         │
+#         ├──► setup-node.sh ──► setup-gemini.sh
+#         │                  ──► setup-claude.sh
+#         ├──► setup-csm.sh         (requires Go from base-setup)
 #         │       └──► setup-extensions.sh (requires code-server + csm)
 #         ├──► setup-pipeline.sh    (agents + settings merge)
 #         ├──► setup-mcp.sh         (registers with claude)
 #         └──► setup-credentials.sh (git + gh auth)
+#
+# NOTE: base-setup.sh is NOT included here. It runs during Ubuntu installation
+# (install-ubuntu.sh, Step 5). This script assumes the foundation layer
+# (Go, UV, system packages) is already present. If running on a pre-existing
+# Ubuntu proot without install-ubuntu.sh, run base-setup.sh first:
+#   bash scripts/ubuntu/base-setup.sh && bash scripts/install-all.sh
 
-run_step "base-setup.sh"        "System Packages + Go + UV"
 run_step "setup-node.sh"        "Node.js v${NODE_TARGET_MAJOR:-22} LTS"
 run_step "setup-gemini.sh"      "Gemini CLI"
 run_step "setup-claude.sh"      "Claude Code"

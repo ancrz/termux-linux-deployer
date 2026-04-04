@@ -16,30 +16,47 @@ The pipeline runs in strict dependency order. `install-all.sh` orchestrates
 everything after `base-setup.sh` provides the foundation.
 
 ```
-[TERMUX NATIVE]
-  1. install-ubuntu.sh        Bootstrap proot-distro Ubuntu (one-time)
-  2. login-ubuntu.sh           Enter proot, propagate .env vars
+[TERMUX NATIVE — one-time provisioning]
+  1. install-ubuntu.sh
+     ├─ proot-distro install ubuntu
+     ├─ Copy deployer files into rootfs
+     ├─ Copy .env into /root/.env
+     └─ Run base-setup.sh inside proot    ← foundation: apt + Go + UV
+  2. login-ubuntu.sh                       ← enter proot, propagate .env vars
 
-[UBUNTU PROOT]
-  3. install-all.sh            Orchestrator — runs steps 3a-3i:
-     ├─ 3a. base-setup.sh          System packages, Go, UV (Rust skipped*)
-     ├─ 3b. setup-node.sh          Node.js v22 LTS via NodeSource
-     ├─ 3c. setup-gemini.sh        Gemini CLI via npm
-     ├─ 3d. setup-claude.sh        Claude Code (npm primary, standalone fallback)
-     ├─ 3e. setup-csm.sh           Compile Go binary + install code-server
-     ├─ 3f. setup-pipeline.sh      Deploy agents + merge settings.json
-     ├─ 3g. setup-mcp.sh           GitHub MCP + skill-swarm + registration
-     ├─ 3h. setup-credentials.sh   Git identity, gh auth, credential store
-     └─ 3i. setup-extensions.sh    Profile-based extension install with retry
+[UBUNTU PROOT — application layer]
+  3. install-all.sh            Orchestrator — assumes base-setup already ran:
+     ├─ 3a. setup-node.sh          Node.js v22 LTS via NodeSource
+     ├─ 3b. setup-gemini.sh        Gemini CLI via npm
+     ├─ 3c. setup-claude.sh        Claude Code (npm primary, standalone fallback)
+     ├─ 3d. setup-csm.sh           Compile Go binary + install code-server
+     ├─ 3e. setup-pipeline.sh      Deploy agents + merge settings.json
+     ├─ 3f. setup-mcp.sh           GitHub MCP + skill-swarm + registration
+     ├─ 3g. setup-credentials.sh   Git identity, gh auth, credential store
+     └─ 3h. setup-extensions.sh    Profile-based extension install with retry
 ```
 
 *Rust skipped due to proot segfault — see `docs/rust-proot-known-issue.md`.
 
+The key architectural decision: `base-setup.sh` is part of the Ubuntu
+provisioning layer (runs via `install-ubuntu.sh` from Termux), NOT part of
+`install-all.sh`. This is because you need Ubuntu to be installed before
+you can install anything inside it. `install-all.sh` is the application
+layer that assumes Go, UV, and system packages are already present.
+
+If running on a pre-existing Ubuntu proot without `install-ubuntu.sh`:
+```bash
+bash scripts/ubuntu/base-setup.sh    # foundation first
+bash scripts/install-all.sh          # then application layer
+```
+
 ### Dependency Graph
 
 ```
-base-setup.sh (Go, UV, system packages)
-    │
+install-ubuntu.sh (Termux)
+    └── base-setup.sh (Go, UV, system packages)
+
+install-all.sh (Ubuntu proot) — requires base-setup foundation
     ├── setup-node.sh (Node.js v22)
     │   ├── setup-gemini.sh (npm)
     │   └── setup-claude.sh (npm/standalone)
