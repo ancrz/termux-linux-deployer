@@ -120,8 +120,31 @@ bash /root/deployer/scripts/install-all.sh
 ### 4. Start code-server
 
 ```bash
-csm start
+csm start                   # start code-server
+csm status                  # verify it's running and healthy
 # Access via browser at http://localhost:8443
+```
+
+### Daily Usage
+
+```bash
+# Start
+csm start
+
+# Stop
+csm stop
+
+# Restart
+csm restart
+
+# Start with auto-restart supervisor (keeps code-server alive)
+csm watchdog
+
+# Check state
+csm status
+
+# View logs
+csm logs
 ```
 
 ## Code-Server Manager (csm)
