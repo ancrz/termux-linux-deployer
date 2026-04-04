@@ -57,19 +57,93 @@ log_success "CLAUDE_CODE_TMPDIR ready"
 
 # --- Detect Install Method ---------------------------------------------------
 # If claude was installed via npm, it lives in npm's global prefix.
-# If installed via standalone, it lives in ~/.claude/bin.
-# We must not mix these — the standalone installer breaks npm symlinks.
+# If installed via standalone, it lives in ~/.local/bin or ~/.claude/bin.
+# We must not mix these — the standalone installer creates symlinks that
+# conflict with npm's global install path, breaking the claude binary.
+#
+# Standalone paths (new installer):
+#   ~/.local/bin/claude → ~/.local/share/claude/versions/X.Y.Z
+# Standalone paths (old installer):
+#   ~/.claude/bin/claude
+# npm paths:
+#   /usr/lib/node_modules/@anthropic-ai/claude-code/ + /usr/bin/claude symlink
 
 INSTALL_METHOD="unknown"
 if validate_cmd "claude"; then
     CLAUDE_PATH="$(which claude 2>/dev/null || echo '')"
-    if [[ "$CLAUDE_PATH" == *"node_modules"* ]] || [[ "$CLAUDE_PATH" == *"npm"* ]] || [[ "$CLAUDE_PATH" == "/usr/"* ]]; then
+    if [[ "$CLAUDE_PATH" == *"node_modules"* ]] || [[ "$CLAUDE_PATH" == *"npm"* ]] || [[ "$CLAUDE_PATH" == "/usr/bin/"* ]]; then
         INSTALL_METHOD="npm"
-    elif [[ "$CLAUDE_PATH" == *".claude/bin"* ]]; then
-        INSTALL_METHOD="standalone"
+    elif [[ "$CLAUDE_PATH" == *".claude/bin"* ]] || [[ "$CLAUDE_PATH" == *".local/bin/claude"* ]]; then
+        # Confirm standalone: check if it's a symlink to .local/share/claude/versions/
+        if [[ -L "$CLAUDE_PATH" ]]; then
+            LINK_TARGET="$(readlink -f "$CLAUDE_PATH" 2>/dev/null || echo '')"
+            if [[ "$LINK_TARGET" == *"claude/versions"* ]]; then
+                INSTALL_METHOD="standalone"
+            fi
+        fi
+        # Also standalone if the binary lives in .claude/bin directly
+        if [[ "$INSTALL_METHOD" == "unknown" && "$CLAUDE_PATH" == *".claude/bin"* ]]; then
+            INSTALL_METHOD="standalone"
+        fi
     fi
     log_step "Detected existing installation: method=${INSTALL_METHOD}, path=${CLAUDE_PATH}"
 fi
+
+# --- Sanitize Conflicting Install --------------------------------------------
+# If both npm and standalone artifacts exist, clean up the one we're NOT going
+# to use. npm is the primary strategy, so if npm artifacts exist alongside
+# standalone, remove standalone. If only standalone exists, leave it and skip
+# npm install (use existing).
+
+sanitize_standalone() {
+    log_step "Removing standalone artifacts to prevent symlink conflicts..."
+    # New standalone paths
+    rm -f "$HOME/.local/bin/claude" 2>/dev/null || true
+    rm -rf "$HOME/.local/share/claude" 2>/dev/null || true
+    # Old standalone paths
+    rm -rf "$HOME/.claude/bin" 2>/dev/null || true
+    log_success "Standalone artifacts cleaned"
+}
+
+sanitize_npm() {
+    log_step "Removing npm artifacts to prevent symlink conflicts..."
+    npm uninstall -g "$CLAUDE_PKG" 2>/dev/null || true
+    rm -f /usr/bin/claude 2>/dev/null || true
+    log_success "npm artifacts cleaned"
+}
+
+# Check for mixed state: both npm and standalone artifacts present
+HAS_NPM_ARTIFACTS=false
+HAS_STANDALONE_ARTIFACTS=false
+
+if [[ -d "/usr/lib/node_modules/@anthropic-ai/claude-code" ]] || [[ -f "/usr/bin/claude" ]]; then
+    HAS_NPM_ARTIFACTS=true
+fi
+if [[ -L "$HOME/.local/bin/claude" && "$(readlink -f "$HOME/.local/bin/claude" 2>/dev/null)" == *"claude/versions"* ]] \
+   || [[ -d "$HOME/.claude/bin" && -f "$HOME/.claude/bin/claude" ]]; then
+    HAS_STANDALONE_ARTIFACTS=true
+fi
+
+if [[ "$HAS_NPM_ARTIFACTS" == true && "$HAS_STANDALONE_ARTIFACTS" == true ]]; then
+    log_warn "CONFLICT: Both npm and standalone Claude installs detected!"
+    log_warn "npm artifacts:        /usr/lib/node_modules/@anthropic-ai/claude-code"
+    log_warn "standalone artifacts: $HOME/.local/bin/claude or $HOME/.claude/bin/claude"
+    # npm is primary strategy — clean standalone
+    sanitize_standalone
+    INSTALL_METHOD="npm"
+    log_success "Conflict resolved: using npm installation"
+elif [[ "$HAS_STANDALONE_ARTIFACTS" == true && "$HAS_NPM_ARTIFACTS" == false ]]; then
+    log_step "Standalone-only install detected — will use existing if functional"
+fi
+
+# --- Smoke Test (defined early — used by version check and install) ----------
+
+smoke_test() {
+    if timeout 15 claude --version &>/dev/null; then
+        return 0
+    fi
+    return 1
+}
 
 # --- Version Check -----------------------------------------------------------
 
@@ -80,27 +154,19 @@ if ! validate_cmd "claude"; then
     DO_INSTALL=1
 else
     LOCAL_VER="$(claude --version 2>/dev/null || echo 'unknown')"
-    REMOTE_VER="$(npm view "$CLAUDE_PKG" version --timeout=5000 2>/dev/null || echo 'unknown')"
 
-    if [[ "$REMOTE_VER" == "unknown" ]]; then
-        log_warn "Could not determine remote version — skipping update check"
-        log_success "Claude Code: ${LOCAL_VER}"
-    elif [[ "$LOCAL_VER" != "$REMOTE_VER" ]]; then
-        log_warn "Update available: ${LOCAL_VER} -> ${REMOTE_VER}"
-        DO_INSTALL=1
+    # Claude Code auto-updates on each run (both npm and standalone).
+    # Only force reinstall if the binary is broken, not just outdated.
+    # The CLI handles its own updates — we just need to ensure it works.
+    if smoke_test; then
+        log_success "Claude Code: ${LOCAL_VER} (auto-updates on next run)"
     else
-        log_success "Claude Code is up to date (${LOCAL_VER})"
+        log_warn "Claude Code installed but smoke test failed — will reinstall"
+        DO_INSTALL=1
     fi
 fi
 
 # --- Install / Update --------------------------------------------------------
-
-smoke_test() {
-    if timeout 15 claude --version &>/dev/null; then
-        return 0
-    fi
-    return 1
-}
 
 if [[ "$DO_INSTALL" -eq 1 ]]; then
 
@@ -196,12 +262,16 @@ else
     log_success "CLAUDE_CODE_TMPDIR already present in $BASHRC_FILE"
 fi
 
-# If standalone was used, persist its PATH
-if [[ "${INSTALL_METHOD}" == "standalone" ]] || [[ -d "$HOME/.claude/bin" ]]; then
-    CLAUDE_PATH_LINE='export PATH="$HOME/.claude/bin:$PATH"'
-    if ! grep -qF ".claude/bin" "$BASHRC_FILE" 2>/dev/null; then
-        echo "$CLAUDE_PATH_LINE" >> "$BASHRC_FILE"
-        log_success "~/.claude/bin added to PATH in $BASHRC_FILE"
+# If standalone was used, persist its PATH (covers both old and new paths)
+if [[ "${INSTALL_METHOD}" == "standalone" ]] || [[ -d "$HOME/.claude/bin" ]] || [[ -L "$HOME/.local/bin/claude" ]]; then
+    # New standalone: ~/.local/bin (already in PATH via base-setup)
+    # Old standalone: ~/.claude/bin (needs explicit PATH entry)
+    if [[ -d "$HOME/.claude/bin" ]]; then
+        CLAUDE_PATH_LINE='export PATH="$HOME/.claude/bin:$PATH"'
+        if ! grep -qF ".claude/bin" "$BASHRC_FILE" 2>/dev/null; then
+            echo "$CLAUDE_PATH_LINE" >> "$BASHRC_FILE"
+            log_success "~/.claude/bin added to PATH in $BASHRC_FILE"
+        fi
     fi
 fi
 
@@ -211,10 +281,26 @@ log_header "Validation"
 
 if validate_cmd "claude"; then
     CLAUDE_VER="$(claude --version 2>/dev/null || echo 'version unavailable')"
-    CLAUDE_PATH="$(which claude 2>/dev/null || echo 'unknown')"
+    FINAL_PATH="$(which claude 2>/dev/null || echo 'unknown')"
+    FINAL_METHOD="unknown"
+    if [[ -L "$FINAL_PATH" ]]; then
+        LINK_TARGET="$(readlink -f "$FINAL_PATH" 2>/dev/null || echo '')"
+        if [[ "$LINK_TARGET" == *"claude/versions"* ]]; then
+            FINAL_METHOD="standalone"
+        elif [[ "$LINK_TARGET" == *"node_modules"* ]]; then
+            FINAL_METHOD="npm"
+        fi
+    elif [[ "$FINAL_PATH" == "/usr/bin/claude" ]]; then
+        FINAL_METHOD="npm"
+    fi
     log_success "Claude Code: ${CLAUDE_VER}"
-    log_success "Binary at: ${CLAUDE_PATH}"
-    log_warn "IMPORTANT: Do NOT run 'claude install' — it conflicts with npm installation"
+    log_success "Binary at: ${FINAL_PATH} (method: ${FINAL_METHOD})"
+    log_success "Auto-update: Claude CLI updates itself on each interactive run"
+    if [[ "$FINAL_METHOD" == "standalone" ]]; then
+        log_warn "CAUTION: Do NOT run 'npm install -g @anthropic-ai/claude-code' — it will break the standalone symlink"
+    elif [[ "$FINAL_METHOD" == "npm" ]]; then
+        log_warn "CAUTION: Do NOT run the standalone installer (claude.ai/install.sh) — it will break the npm symlink"
+    fi
 else
     log_fail "claude command not found after install attempt"
     exit 1
