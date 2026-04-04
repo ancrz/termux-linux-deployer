@@ -69,13 +69,19 @@ ensure_path
 
 if ! validate_cmd "rustc"; then
     log_step "Installing Rust via rustup (non-interactive)"
-    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-    # Load cargo env so rustc/cargo are available in this session immediately.
-    if [[ -f "$HOME/.cargo/env" ]]; then
-        # shellcheck disable=SC1091
-        source "$HOME/.cargo/env"
+    # NOTE: rustup segfaults inside proot-distro (known issue).
+    # See docs/rust-proot-known-issue.md for details and workarounds.
+    if curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y; then
+        # Load cargo env so rustc/cargo are available in this session immediately.
+        if [[ -f "$HOME/.cargo/env" ]]; then
+            # shellcheck disable=SC1091
+            source "$HOME/.cargo/env"
+        fi
+        log_success "Rust $(rustc --version)"
+    else
+        log_warn "Rust installation failed (likely proot segfault). Skipping."
+        log_warn "See docs/rust-proot-known-issue.md for workarounds."
     fi
-    log_success "Rust $(rustc --version)"
 else
     log_step "Rust already installed — updating to stable"
     rustup update stable 2>/dev/null || true
