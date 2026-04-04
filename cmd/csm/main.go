@@ -256,14 +256,28 @@ func cmdStart() {
 		printWarn("code-server started but PID file could not be written.")
 	}
 
-	printInfo(fmt.Sprintf("code-server started (PID: %d). Waiting %ds for startup...",
-		cmd.Process.Pid, startupWaitSeconds))
-	time.Sleep(startupWaitSeconds * time.Second)
+	printInfo(fmt.Sprintf("code-server started (PID: %d). Waiting for healthy state...",
+		cmd.Process.Pid))
 
-	if healthCheck() {
+	// Adaptive startup check: try up to 5 times with 3s intervals (15s total)
+	// instead of a single check after a fixed sleep. code-server on proot
+	// can take 8-12s to respond on first boot.
+	healthy := false
+	for i := 1; i <= 5; i++ {
+		time.Sleep(3 * time.Second)
+		if healthCheck() {
+			healthy = true
+			break
+		}
+		if i < 5 {
+			printInfo(fmt.Sprintf("  health check %d/5 — not ready, retrying...", i))
+		}
+	}
+
+	if healthy {
 		printSuccess(fmt.Sprintf("code-server is running and healthy on port %s.", port))
 	} else {
-		printWarn("code-server started but health check failed. Check logs: csm logs")
+		printWarn("code-server started but health check failed after 15s. Check logs: csm logs")
 	}
 }
 
@@ -426,6 +440,25 @@ func cmdWatchdog() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
 
+	// Open watchdog log for persistent logging (append mode).
+	watchdogLogFile := filepath.Join(configDir, "watchdog.log")
+	wdLog, err := os.OpenFile(watchdogLogFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o640)
+	if err != nil {
+		printWarn("Could not open watchdog log: " + err.Error() + " — logging to stdout only")
+	} else {
+		defer wdLog.Close()
+	}
+
+	// wdPrint writes to both stdout and watchdog.log with timestamp.
+	wdPrint := func(level, msg string) {
+		ts := time.Now().Format("2006-01-02T15:04:05Z07:00")
+		line := fmt.Sprintf("[%s] [%s] %s", ts, level, msg)
+		fmt.Println(line)
+		if wdLog != nil {
+			fmt.Fprintln(wdLog, line)
+		}
+	}
+
 	// Backoff schedule in seconds.
 	backoffs := []time.Duration{30 * time.Second, 60 * time.Second, 120 * time.Second, 300 * time.Second}
 	backoffIdx := 0
@@ -435,63 +468,53 @@ func cmdWatchdog() {
 	ticker := time.NewTicker(watchdogInterval)
 	defer ticker.Stop()
 
-	printInfo(fmt.Sprintf("Watchdog started (check interval: %s, failure threshold: %d).",
-		watchdogInterval, maxConsecFailures))
+	wdPrint("INFO", fmt.Sprintf("Watchdog started (check interval: %s, failure threshold: %d, log: %s).",
+		watchdogInterval, maxConsecFailures, watchdogLogFile))
 
 	for {
 		select {
 		case <-ctx.Done():
-			printInfo("Watchdog received shutdown signal. Exiting.")
+			wdPrint("INFO", "Watchdog received shutdown signal. Exiting.")
 			return
 
 		case t := <-ticker.C:
 			if healthCheck() {
-				// Reset failure state on a healthy tick.
 				if consecFailures > 0 {
-					printInfo("code-server is healthy again. Resetting failure counter.")
+					wdPrint("INFO", "code-server is healthy again. Resetting failure counter.")
 					consecFailures = 0
 					backoffIdx = 0
-				} else {
-					// Periodic heartbeat — only every 5th tick to reduce noise.
-					// We use the minute of the tick to spread the log entries.
-					if t.Minute()%5 == 0 {
-						printInfo(fmt.Sprintf("Heartbeat: code-server healthy on port %s.", port))
-					}
+				} else if t.Minute()%5 == 0 {
+					wdPrint("INFO", fmt.Sprintf("Heartbeat: code-server healthy on port %s.", port))
 				}
 				continue
 			}
 
-			// Health check failed.
 			consecFailures++
-			printWarn(fmt.Sprintf("Health check failed (%d/%d consecutive).", consecFailures, maxConsecFailures))
+			wdPrint("WARN", fmt.Sprintf("Health check failed (%d/%d consecutive).", consecFailures, maxConsecFailures))
 
 			if consecFailures < maxConsecFailures {
 				continue
 			}
 
-			// Threshold reached — restart.
 			restartCount++
-			printWarn(fmt.Sprintf("Restarting code-server (restart attempt #%d)...", restartCount))
+			wdPrint("WARN", fmt.Sprintf("Restarting code-server (restart attempt #%d)...", restartCount))
 			cmdStop()
 			time.Sleep(time.Second)
 			cmdStart()
 
-			// Apply backoff before resuming checks.
 			backoff := backoffs[backoffIdx]
 			if backoffIdx < len(backoffs)-1 {
 				backoffIdx++
 			}
-			printInfo(fmt.Sprintf("Backing off for %s before next check.", backoff))
+			wdPrint("INFO", fmt.Sprintf("Backing off for %s before next check.", backoff))
 
-			// Wait for backoff duration, but still honour shutdown signals.
 			select {
 			case <-ctx.Done():
-				printInfo("Watchdog received shutdown signal during backoff. Exiting.")
+				wdPrint("INFO", "Watchdog received shutdown signal during backoff. Exiting.")
 				return
 			case <-time.After(backoff):
 			}
 
-			// Reset ticker and failure counter after backoff.
 			ticker.Reset(watchdogInterval)
 			consecFailures = 0
 		}

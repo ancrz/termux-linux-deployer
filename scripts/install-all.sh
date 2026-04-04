@@ -65,12 +65,16 @@ run_step() {
 # --- Execute Steps in Dependency Order ----------------------------------------
 #
 # Dependency graph:
-#   base-setup.sh  ──►  setup-node.sh  ──►  setup-gemini.sh
-#                                       ──►  setup-claude.sh
-#                   ──►  setup-csm.sh   (requires Go from base-setup)
-#                   ──►  setup-pipeline.sh
-#                   ──►  setup-mcp.sh   (registers with claude from setup-claude)
+#
+#   base-setup.sh ──► setup-node.sh ──► setup-gemini.sh
+#         │                         ──► setup-claude.sh
+#         ├──► setup-csm.sh         (requires Go)
+#         │       └──► setup-extensions.sh (requires code-server + csm)
+#         ├──► setup-pipeline.sh    (agents + settings merge)
+#         ├──► setup-mcp.sh         (registers with claude)
+#         └──► setup-credentials.sh (git + gh auth)
 
+run_step "base-setup.sh"        "System Packages + Go + UV"
 run_step "setup-node.sh"        "Node.js v${NODE_TARGET_MAJOR:-22} LTS"
 run_step "setup-gemini.sh"      "Gemini CLI"
 run_step "setup-claude.sh"      "Claude Code"
@@ -78,6 +82,7 @@ run_step "setup-csm.sh"         "Code-Server Manager (csm)"
 run_step "setup-pipeline.sh"    "Pipeline Agent Configs"
 run_step "setup-mcp.sh"         "MCP Servers"
 run_step "setup-credentials.sh" "Credentials & GitHub Auth"
+run_step "setup-extensions.sh"  "Code-Server Extensions (profile-based)"
 
 # --- Final Summary -----------------------------------------------------------
 
