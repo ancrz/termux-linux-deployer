@@ -84,8 +84,8 @@ if ! validate_cmd "rustc"; then
     fi
 else
     log_step "Rust already installed — updating to stable"
-    rustup update stable 2>/dev/null || true
-    log_success "Rust $(rustc --version)"
+    rustup update stable 2>/dev/null || log_warn "rustup update failed (proot segfault). Skipping update."
+    log_success "Rust $(rustc --version 2>/dev/null || echo 'present but not functional')"
 fi
 
 # --- Step 3: Go --------------------------------------------------------------
