@@ -90,17 +90,29 @@ func main() {
 	}
 
 	subcmd := os.Args[1]
+	tmuxFlag := hasFlag("--tmux")
 	switch subcmd {
 	case "install":
 		cmdInstall()
 	case "config":
 		cmdConfig()
 	case "start":
-		cmdStart()
+		if tmuxFlag {
+			cmdTmuxWrap("csm-server", "csm start")
+		} else {
+			cmdStart()
+		}
 	case "stop":
 		cmdStop()
 	case "restart":
-		cmdRestart()
+		if tmuxFlag {
+			// Stop existing, then launch in tmux
+			cmdStop()
+			time.Sleep(time.Second)
+			cmdTmuxWrap("csm-server", "csm start")
+		} else {
+			cmdRestart()
+		}
 	case "status":
 		cmdStatus()
 	case "health":
@@ -120,7 +132,11 @@ func main() {
 	case "purge":
 		cmdPurge()
 	case "watchdog":
-		cmdWatchdog()
+		if tmuxFlag {
+			cmdTmuxWrap("csm-watchdog", "csm watchdog")
+		} else {
+			cmdWatchdog()
+		}
 	case "update":
 		cmdUpdate()
 	case "extensions":
@@ -146,15 +162,15 @@ func printUsage() {
 Subcommands:
   install                        Download and install code-server
   config                         Create directories and write config.yaml
-  start                          Start code-server in the background
+  start [--tmux]                 Start code-server (--tmux: in detached tmux session)
   stop                           Stop a running code-server process
-  restart                        Stop then start
+  restart [--tmux]               Stop then start (--tmux: in detached tmux session)
   status                         Show process state and health
   health                         HTTP health-check (exit 0=ok, 1=fail)
   logs [N]                       Print last N lines of log file (default 50)
   logs rotate                    Rotate logs if over 100MB (keeps 7 backups)
   purge                          Remove all code-server config/data (destructive)
-  watchdog                       Background watchdog loop
+  watchdog [--tmux]              Background watchdog loop (--tmux: in detached tmux session)
   update                         Stop, reinstall, and verify code-server
   extensions install [profile]   Install extensions from profile JSON
   extensions list                List installed extensions
@@ -1501,4 +1517,62 @@ func getEnv(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// hasFlag checks if a flag (e.g. "--tmux") is present anywhere in os.Args.
+func hasFlag(flag string) bool {
+	for _, arg := range os.Args[2:] {
+		if arg == flag {
+			return true
+		}
+	}
+	return false
+}
+
+// ---------------------------------------------------------------------------
+// tmux integration
+// ---------------------------------------------------------------------------
+
+// tmux socket path — proot's /tmp does not support unix sockets,
+// so we use a fixed socket in the home directory.
+var tmuxSocket = filepath.Join(home, ".tmux-socket")
+
+// tmuxCmd creates an exec.Command for tmux with the fixed socket path.
+func tmuxCmd(args ...string) *exec.Cmd {
+	fullArgs := append([]string{"-S", tmuxSocket}, args...)
+	return exec.Command("tmux", fullArgs...)
+}
+
+// cmdTmuxWrap launches a csm command inside a detached tmux session.
+// If the session already exists, it reports and exits (no duplicate).
+// Session name is deterministic so csm stop/status still work (code-server
+// is the same process regardless of whether tmux wraps it).
+func cmdTmuxWrap(sessionName, command string) {
+	if _, err := exec.LookPath("tmux"); err != nil {
+		printError("tmux not found. Install tmux or run without --tmux.")
+		os.Exit(1)
+	}
+
+	// Check if session already exists.
+	check := tmuxCmd("has-session", "-t", sessionName)
+	if check.Run() == nil {
+		printWarn(fmt.Sprintf("tmux session '%s' already exists.", sessionName))
+		printInfo(fmt.Sprintf("  Attach:  tmux -S %s attach -t %s", tmuxSocket, sessionName))
+		printInfo(fmt.Sprintf("  Kill:    tmux -S %s kill-session -t %s", tmuxSocket, sessionName))
+		return
+	}
+
+	// Launch detached session running the command.
+	cmd := tmuxCmd("new-session", "-d", "-s", sessionName, command)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		printError("failed to create tmux session: " + err.Error())
+		os.Exit(1)
+	}
+
+	printSuccess(fmt.Sprintf("Started in tmux session '%s' (detached).", sessionName))
+	printInfo(fmt.Sprintf("  Attach:  tmux -S %s attach -t %s", tmuxSocket, sessionName))
+	printInfo(fmt.Sprintf("  Detach:  Ctrl-a + d"))
+	printInfo(fmt.Sprintf("  List:    tmux -S %s ls", tmuxSocket))
 }

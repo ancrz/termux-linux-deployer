@@ -121,50 +121,53 @@ bash /root/deployer/scripts/install-all.sh
 ### 4. Start code-server (with tmux for persistence)
 
 ```bash
-# Create a persistent tmux session
-tmux new -s dev
+# Option A: --tmux flag (recommended — one command, fully detached)
+csm start --tmux                    # code-server in tmux session
+csm watchdog --tmux                 # supervisor in tmux session
 
-# Inside tmux: start code-server
-csm start
-# Access via browser at http://localhost:8443
+# Option B: manual tmux session
+tmux -S ~/.tmux-socket new -s dev   # create session
+csm start                           # inside tmux
+# Ctrl-a + d                        # detach
 
-# Detach from tmux (code-server keeps running)
-# Press: Ctrl-a then d
-
-# Re-attach later (even after closing Termux)
-tmux attach -t dev
+# Access via browser
+# http://localhost:8443
 ```
 
 ### Daily Usage
 
 ```bash
-# --- tmux sessions ---
-tmux new -s dev             # create session
-tmux attach -t dev          # re-attach
-tmux ls                     # list sessions
-# Ctrl-a + [               # scroll mode (vi keys or arrows)
-# Ctrl-a + d               # detach
+# --- code-server (with --tmux) ---
+csm start --tmux             # start in detached tmux session
+csm stop                     # stop (works regardless of tmux)
+csm restart --tmux           # stop + start in tmux
+csm watchdog --tmux          # supervisor in tmux
+csm status                   # process state + health
+csm logs                     # view logs
 
-# --- code-server ---
-csm start                   # start
-csm stop                    # stop
-csm restart                 # restart
-csm watchdog                # supervisor with auto-restart
-csm status                  # process state + health
-csm logs                    # view logs
+# --- tmux session management ---
+tmux -S ~/.tmux-socket ls                         # list sessions
+tmux -S ~/.tmux-socket attach -t csm-server       # attach to code-server
+tmux -S ~/.tmux-socket attach -t csm-watchdog     # attach to watchdog
+# Ctrl-a + d                                      # detach
+# Ctrl-a + [                                      # scroll mode
 ```
+
+> **Note:** proot requires a custom socket path (`-S ~/.tmux-socket`). The `--tmux` flag handles this automatically.
 
 ### tmux + code-server (recommended workflow)
 
 ```mermaid
 flowchart LR
-    T["Termux"] -->|"tmux new -s dev"| S["tmux session"]
-    S -->|"csm start"| CS["code-server :8443"]
-    S -->|"Ctrl-a d"| D["Detached"]
-    D -->|"tmux attach -t dev"| S
+    T["Termux"] -->|"csm start --tmux"| S["tmux: csm-server"]
+    T -->|"csm watchdog --tmux"| W["tmux: csm-watchdog"]
+    S --> CS["code-server :8443"]
+    W -->|"monitors"| CS
     CS -->|"browser"| B["http://localhost:8443"]
+    S -.->|"attach"| AT["tmux attach -t csm-server"]
 
     style S fill:#2ecc71
+    style W fill:#e67e22
     style CS fill:#4a9eff
 ```
 
@@ -198,14 +201,14 @@ stateDiagram-v2
 ```bash
 csm install                        # Install code-server
 csm config                         # Generate config.yaml from .env
-csm start                          # Start with adaptive health check
+csm start [--tmux]                 # Start (--tmux: in detached tmux session)
 csm stop                           # Graceful SIGTERM -> SIGKILL after 5s
-csm restart                        # Stop + start
+csm restart [--tmux]               # Stop + start (--tmux: in tmux session)
 csm status                         # Process state + health
 csm health                         # HTTP /healthz check (exit 0/1)
 csm logs [N]                       # Last N log lines (default 50)
 csm logs rotate                    # Rotate logs if over 100MB (keeps 7 backups)
-csm watchdog                       # Supervisor loop with persistent log
+csm watchdog [--tmux]              # Supervisor loop (--tmux: in tmux session)
 csm purge                          # Remove all data (interactive)
 csm extensions install [profile]   # Profile-based install with retry
 csm extensions list                # List installed extensions
