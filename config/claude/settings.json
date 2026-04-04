@@ -30,5 +30,9 @@
       "command": "npx",
       "args": ["google-workspace-mcp", "serve"]
     }
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "bash /root/.claude/statusline-command.sh"
   }
 }
