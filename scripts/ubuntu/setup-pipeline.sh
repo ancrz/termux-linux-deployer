@@ -47,6 +47,15 @@ else
     log_warn "CLAUDE.md not found in $CLAUDE_CONFIG_SRC — skipping"
 fi
 
+# statusline-command.sh: custom Claude Code status line.
+if [[ -f "$CLAUDE_CONFIG_SRC/statusline-command.sh" ]]; then
+    cp "$CLAUDE_CONFIG_SRC/statusline-command.sh" "$CLAUDE_TARGET/statusline-command.sh"
+    chmod +x "$CLAUDE_TARGET/statusline-command.sh"
+    log_success "Deployed statusline-command.sh"
+else
+    log_warn "statusline-command.sh not found — skipping"
+fi
+
 # settings.json: Claude Code CLI settings + MCP servers.
 # Uses jq merge: source config is the base, existing user config is overlaid.
 # This preserves MCP servers registered via 'claude mcp add' while ensuring
