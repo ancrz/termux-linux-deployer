@@ -1,8 +1,6 @@
 # termux-linux-deployer
 
-Automated deployment of a full development environment inside proot-distro Ubuntu on Termux (Android/arm64).
-
-Deploys: **Claude Code**, **Gemini CLI**, **code-server**, **UV/Python**, **Node.js**, **Rust**, **Go**, and the pipeline-agentic agent framework.
+Automated deployment of a full development environment inside proot-distro Ubuntu on Termux (Android/arm64). Deploys **Claude Code**, **Gemini CLI**, **code-server**, **Go**, **UV/Python**, **Node.js**, MCP servers, and a 5-agent pipeline framework.
 
 ## Target Device
 
@@ -21,9 +19,9 @@ graph TB
         L["login-ubuntu.sh<br/>.env propagation"]
     end
 
-    subgraph "Ubuntu proot · /root"
+    subgraph "Ubuntu proot - /root"
         subgraph "L0: Foundation"
-            C["base-setup.sh<br/>apt + Rust + Go + UV"]
+            C["base-setup.sh<br/>apt + Go 1.24 + UV"]
         end
 
         subgraph "L1: Runtimes"
@@ -32,20 +30,24 @@ graph TB
 
         subgraph "L2: AI CLI Tools"
             G["Gemini CLI<br/>@google/gemini-cli"]
-            H["Claude Code<br/>standalone installer"]
+            H["Claude Code<br/>npm primary / standalone fallback"]
         end
 
-        subgraph "L3: IDE Server"
-            I["csm (Go binary)<br/>watchdog + health"]
-            J["code-server"]
+        subgraph "L3: IDE + Process Manager"
+            I["csm Go binary<br/>watchdog + health + extensions"]
+            J["code-server 4.x"]
         end
 
         subgraph "L4: Agent Pipeline"
-            K["CLAUDE.md + GEMINI.md<br/>Archon · Ontos · Pragma<br/>Dokimos · Hermon"]
+            K["CLAUDE.md + GEMINI.md<br/>Archon - Ontos - Pragma<br/>Dokimos - Hermon"]
         end
 
         subgraph "L5: MCP Servers"
             M["sequential-thinking<br/>github-mcp-server<br/>skill-swarm<br/>google-workspace-mcp"]
+        end
+
+        subgraph "L6: Auth + Extensions"
+            N["gh CLI + git credentials<br/>profile-based extensions"]
         end
     end
 
@@ -53,8 +55,30 @@ graph TB
     A --> L
     C --> D --> G & H
     C --> I -->|supervises| J
-    G & H --> K
-    K --> M
+    G & H --> K --> M
+    H --> N
+    I --> N
+```
+
+## Pipeline Flow
+
+```mermaid
+flowchart LR
+    subgraph "install-all.sh"
+        direction LR
+        BS["base-setup"] --> ND["setup-node"]
+        ND --> GM["setup-gemini"]
+        ND --> CL["setup-claude"]
+        BS --> CSM["setup-csm"]
+        CL --> PL["setup-pipeline"]
+        CL --> MCP["setup-mcp"]
+        MCP --> CR["setup-credentials"]
+        CSM --> EX["setup-extensions"]
+    end
+
+    style BS fill:#4a9eff
+    style EX fill:#2ecc71
+    style CL fill:#e74c3c
 ```
 
 ## Quick Start
@@ -66,10 +90,8 @@ graph TB
 pkg install git -y
 git clone https://github.com/ancrz/termux-linux-deployer.git
 cd termux-linux-deployer
-
-# Configure environment
 cp .env.example .env
-nano .env   # Fill in your tokens and passwords
+nano .env   # Fill: GITHUB_PERSONAL_ACCESS_TOKEN, CS_PASSWORD, GIT_USER_NAME, GIT_USER_EMAIL
 ```
 
 ### 2. Bootstrap Ubuntu
@@ -78,26 +100,154 @@ nano .env   # Fill in your tokens and passwords
 bash scripts/termux/install-ubuntu.sh
 ```
 
-This installs proot-distro Ubuntu, copies deployer scripts into the rootfs, and runs `base-setup.sh` (system packages + Rust + Go + UV).
-
-### 3. Enter proot and complete setup
+### 3. Enter proot and run full setup
 
 ```bash
 bash scripts/termux/login-ubuntu.sh
 
-# Inside proot Ubuntu:
+# Inside proot Ubuntu — single command installs everything:
 bash /root/deployer/scripts/install-all.sh
 ```
-
-This installs (in order): Node.js, Gemini CLI, Claude Code, code-server manager (csm), pipeline agent configs, and MCP servers.
 
 ### 4. Start code-server
 
 ```bash
 csm start
+# Access via browser at http://localhost:8443
 ```
 
-Access via browser at `http://localhost:8443`.
+## Code-Server Manager (csm)
+
+Static Go binary (stdlib only, `CGO_ENABLED=0`) replacing the legacy bash management script.
+
+```mermaid
+stateDiagram-v2
+    [*] --> Stopped
+    Stopped --> Starting: csm start
+    Starting --> HealthCheck: adaptive retry (5x3s)
+    HealthCheck --> Running: healthy
+    HealthCheck --> StartFailed: 5 checks failed
+    Running --> Stopped: csm stop
+    Running --> Stopped: SIGTERM/SIGKILL
+    Running --> WatchdogMonitor: csm watchdog
+
+    state WatchdogMonitor {
+        [*] --> Healthy
+        Healthy --> Unhealthy: health check fail
+        Unhealthy --> Unhealthy: fail count < 3
+        Unhealthy --> Restarting: 3 consecutive fails
+        Restarting --> Backoff: 30s/60s/120s/300s
+        Backoff --> Healthy: health restored
+    }
+```
+
+### Commands
+
+```bash
+csm install                        # Install code-server
+csm config                         # Generate config.yaml from .env
+csm start                          # Start with adaptive health check
+csm stop                           # Graceful SIGTERM -> SIGKILL after 5s
+csm restart                        # Stop + start
+csm status                         # Process state + health
+csm health                         # HTTP /healthz check (exit 0/1)
+csm logs [N]                       # Last N log lines (default 50)
+csm watchdog                       # Supervisor loop with persistent log
+csm purge                          # Remove all data (interactive)
+csm extensions install [profile]   # Profile-based install with retry
+csm extensions list                # List installed extensions
+csm extensions sync [profile]      # Sync: install missing, report extras
+```
+
+## Extension Install Pipeline
+
+```mermaid
+flowchart TD
+    A["Load profile JSON"] --> B["Check installed"]
+    B --> C{"All present?"}
+    C -->|Yes| Z["Done"]
+    C -->|No| D["Round 1: attempt all"]
+    D --> E{"Failures?"}
+    E -->|No| Z
+    E -->|Yes| F["Classify: proot crash / network / generic"]
+    F --> G["Queue to deferred"]
+    G --> H{"Internet check"}
+    H -->|Fail| I["Wait 10s, retry check"]
+    I -->|Fail| J["Stop: network unavailable"]
+    H -->|OK| K["Retry round (2-5)"]
+    K --> L{"Progress?"}
+    L -->|Yes| G
+    L -->|No| M["Stop: no progress"]
+
+    style F fill:#e74c3c
+    style Z fill:#2ecc71
+```
+
+Error classification:
+- **proot crash**: `double free`, `malloc`, `segfault`, signal 134/139
+- **network**: `ECONNREFUSED`, `ETIMEDOUT`, `fetch failed`
+- **generic**: unknown error
+
+## Claude Code Installation
+
+```mermaid
+flowchart TD
+    A["Detect existing install"] --> B{"Both npm + standalone?"}
+    B -->|Yes| C["Sanitize: remove standalone"]
+    B -->|No| D{"Binary works?"}
+    C --> D
+    D -->|Yes| Z["Done - CLI auto-updates"]
+    D -->|No| E["Strategy 1: npm latest"]
+    E -->|OK + smoke test| Z
+    E -->|Fail| F["Strategy 2: npm pinned 0.2.114"]
+    F -->|OK + smoke test| Z
+    F -->|Fail| G["Strategy 3: standalone installer"]
+    G -->|OK + smoke test| Z
+    G -->|Fail| H["FATAL: all strategies exhausted"]
+
+    style C fill:#e74c3c
+    style Z fill:#2ecc71
+    style H fill:#c0392b
+```
+
+## Pipeline Agents (Topos Integrity Protocol)
+
+```mermaid
+flowchart LR
+    subgraph Orchestrator
+        direction TB
+        O["CLAUDE.md / GEMINI.md"]
+    end
+
+    O -->|"new task"| AR["Archon<br/>opus<br/>Plan"]
+    AR -->|"plan ready"| ON["Ontos<br/>opus<br/>Audit"]
+    ON -->|"APPROVED"| PR["Pragma<br/>sonnet<br/>Execute"]
+    ON -->|"BLOCKED"| AR
+    PR -->|"done"| DK["Dokimos<br/>sonnet<br/>Verify"]
+    PR -->|"blocker"| ON
+    DK -->|"VERIFIED"| HM["Hermon<br/>sonnet<br/>Commit"]
+    DK -->|"LOGIC_ERROR"| PR
+    DK -->|"PLAN_GAP"| AR
+
+    style AR fill:#4a9eff
+    style ON fill:#4a9eff
+    style PR fill:#2ecc71
+    style DK fill:#2ecc71
+    style HM fill:#2ecc71
+```
+
+Agents deployed to `~/.claude/agents/` and `~/.gemini/` by `setup-pipeline.sh`.
+
+## MCP Servers
+
+| Server | Binary | Transport | Token |
+|--------|--------|-----------|-------|
+| sequential-thinking | npx (on-demand) | stdio | None |
+| github-mcp-server | Go arm64 binary | stdio | `GITHUB_PERSONAL_ACCESS_TOKEN` |
+| skill-swarm | Python venv | stdio | `GITHUB_PERSONAL_ACCESS_TOKEN` |
+| google-workspace-mcp | npx (on-demand) | stdio | OAuth (one-time) |
+
+Registered in both `~/.claude/settings.json` and `~/.gemini/settings.json` with token substitution via `envsubst`.
 
 ## Project Structure
 
@@ -105,96 +255,45 @@ Access via browser at `http://localhost:8443`.
 termux-linux-deployer/
 ├── scripts/
 │   ├── termux/
-│   │   ├── install-ubuntu.sh     # proot-distro bootstrap
-│   │   └── login-ubuntu.sh      # env-aware proot login wrapper
+│   │   ├── install-ubuntu.sh          proot-distro bootstrap
+│   │   └── login-ubuntu.sh            env-aware proot login
 │   ├── ubuntu/
-│   │   ├── lib/common.sh        # shared functions (colors, logging, validators)
-│   │   ├── base-setup.sh        # system packages + Rust + Go + UV
-│   │   ├── setup-node.sh        # Node.js v22 LTS
-│   │   ├── setup-gemini.sh      # Gemini CLI
-│   │   ├── setup-claude.sh      # Claude Code (multi-fallback installer)
-│   │   ├── setup-csm.sh         # builds csm Go binary + installs code-server
-│   │   ├── setup-pipeline.sh    # deploys agent configs (Claude + Gemini)
-│   │   └── setup-mcp.sh         # GitHub MCP, skill-swarm, google-workspace
-│   └── install-all.sh           # orchestrator (runs all ubuntu scripts)
-├── cmd/csm/                     # Go source for code-server manager
+│   │   ├── lib/common.sh              shared: colors, logging, validators
+│   │   ├── base-setup.sh              system packages + Go + UV
+│   │   ├── setup-node.sh              Node.js v22 LTS
+│   │   ├── setup-gemini.sh            Gemini CLI
+│   │   ├── setup-claude.sh            Claude Code (sanitized install)
+│   │   ├── setup-csm.sh              Go binary + code-server
+│   │   ├── setup-pipeline.sh          agents + settings merge
+│   │   ├── setup-mcp.sh              MCP servers
+│   │   ├── setup-credentials.sh       git + gh auth
+│   ��   └── setup-extensions.sh        profile-based extensions
+│   └── install-all.sh                 orchestrator
+├── cmd/csm/                           Go source (code-server manager)
 ├── config/
-│   ├── claude/                  # Claude Code settings + pipeline agents
-│   ├── gemini/                  # Gemini CLI settings + pipeline agents
-│   └── csm/                    # code-server config template
-├── .env.example                 # environment variable template
+│   ├── claude/                        settings.json + CLAUDE.md + agents/
+│   ├── gemini/                        settings.json + GEMINI.md + agents
+│   └── csm/                          profile-extensions.json
+├── docs/
+│   ├── pipeline-management.md         full operational reference
+│   ├── rust-proot-known-issue.md      Rust segfault documentation
+│   └── *.sh                           original reference scripts
+├── .env.example                       environment template
 └── README.md
 ```
 
-## Code-Server Manager (csm)
+## Resilience Features
 
-Go binary replacing the shell-based code-server management. Features:
-
-- Process supervision with PID file locking
-- HTTP health checks (`/healthz`)
-- Watchdog mode: auto-restart on failure with exponential backoff
-- Config generation from environment variables
-
-```bash
-csm install     # Install code-server
-csm config      # Generate config from .env
-csm start       # Start in background
-csm stop        # Graceful stop (SIGTERM -> SIGKILL)
-csm restart     # Stop + start
-csm status      # Process state + health
-csm health      # HTTP health check
-csm logs        # Tail log file
-csm watchdog    # Background supervisor loop
-csm purge       # Remove all data (interactive)
-```
-
-## Claude Code Installation
-
-Claude Code uses a multi-fallback installation strategy for aarch64/proot:
-
-1. **Standalone installer** (recommended): `curl -fsSL https://claude.ai/install.sh | bash`
-2. **npm** (deprecated fallback): `npm install -g @anthropic-ai/claude-code`
-3. **npm pinned** (last resort): `@anthropic-ai/claude-code@0.2.114`
-
-Each step includes a smoke test (`timeout 15 claude --version`) to verify the installation works on the platform.
-
-## MCP Servers
-
-| Server | Transport | Notes |
-|--------|-----------|-------|
-| sequential-thinking | npx | Works out of the box |
-| github-mcp-server | Go binary (arm64) | Downloaded from official releases |
-| skill-swarm | Python venv | Cloned and installed locally |
-| google-workspace-mcp | npx | Requires one-time OAuth setup (see below) |
-
-### Google Workspace OAuth Setup
-
-After installation, complete the one-time OAuth flow:
-
-```bash
-npx google-workspace-mcp auth
-```
-
-This opens a browser URL. On the tablet, copy the URL to Android's browser, authenticate, and the token is saved automatically.
-
-## Pipeline Agents
-
-Both Claude Code and Gemini CLI are configured with the pipeline-agentic framework:
-
-- **Archon** — Planning (opus)
-- **Ontos** — Structural audit (opus)
-- **Pragma** — Code execution (sonnet)
-- **Dokimos** — Verification (sonnet)
-- **Hermon** — Git operations (sonnet)
-
-Agent definitions are deployed to `~/.claude/agents/` and `~/.gemini/` by `setup-pipeline.sh`.
-
-## Idempotency
-
-All scripts are idempotent. Running them again will:
-- Skip already-installed and current packages
-- Upgrade to latest if a newer version is available
-- Preserve existing configuration
+| Feature | Mechanism |
+|---------|-----------|
+| Rust segfault | Graceful skip + documentation |
+| Extension malloc crash | Deferred retry loop (5 rounds, error classification) |
+| npm/standalone conflict | Auto-detect + sanitize conflicting artifacts |
+| code-server slow start | Adaptive health check (5 retries x 3s) |
+| Settings overwrite | jq merge (preserves user MCPs) |
+| CLI auto-updates | Respected; only reinstall if broken |
+| Watchdog restarts | Persistent log + exponential backoff |
+| Network failures | Internet pre-check before retry rounds |
 
 ## Environment Variables
 
@@ -202,10 +301,19 @@ See `.env.example` for the full list. Key variables:
 
 | Variable | Used by | Required |
 |----------|---------|----------|
-| `GITHUB_PERSONAL_ACCESS_TOKEN` | github-mcp, skill-swarm | Yes |
-| `CS_PASSWORD` | code-server (csm) | Yes |
+| `GITHUB_PERSONAL_ACCESS_TOKEN` | gh, github-mcp, skill-swarm | Yes |
+| `GITHUB_USERNAME` | git credential store | Yes |
+| `CS_PASSWORD` | csm config | Yes |
 | `GIT_USER_NAME` / `GIT_USER_EMAIL` | git config | Recommended |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | google-workspace-mcp | For Google APIs |
+
+## Idempotency
+
+All scripts are idempotent. Re-running:
+- Skips installed/current packages
+- Upgrades if newer version available
+- Preserves existing configuration (merge, not overwrite)
+- Extension install only processes missing extensions
 
 ## License
 
