@@ -183,12 +183,24 @@ csm restart                        # Stop + start
 csm status                         # Process state + health
 csm health                         # HTTP /healthz check (exit 0/1)
 csm logs [N]                       # Last N log lines (default 50)
+csm logs rotate                    # Rotate logs if over 100MB (keeps 7 backups)
 csm watchdog                       # Supervisor loop with persistent log
 csm purge                          # Remove all data (interactive)
 csm extensions install [profile]   # Profile-based install with retry
 csm extensions list                # List installed extensions
 csm extensions sync [profile]      # Sync: install missing, report extras
 ```
+
+### Log Rotation
+
+Logs auto-rotate on `csm start` and `csm watchdog`. Manual rotation via `csm logs rotate`.
+
+| Setting | Value |
+|---------|-------|
+| Max file size | 100 MB |
+| Max backups | 7 |
+| Scheme | `.log` → `.log.1` → `.log.2` → ... → `.log.7` |
+| Managed files | `code-server.log`, `watchdog.log` |
 
 ## Extension Install Pipeline
 
