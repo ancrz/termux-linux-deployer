@@ -53,6 +53,7 @@ bash scripts/ubuntu/base-setup.sh      # System packages + Rust + Go + UV
 bash scripts/ubuntu/setup-node.sh      # Node.js v22
 bash scripts/ubuntu/setup-gemini.sh    # Gemini CLI
 bash scripts/ubuntu/setup-claude.sh    # Claude Code
+bash scripts/ubuntu/setup-codex.sh     # Codex CLI
 bash scripts/ubuntu/setup-csm.sh       # Build csm + install code-server
 bash scripts/ubuntu/setup-pipeline.sh  # Deploy agent configs
 bash scripts/ubuntu/setup-mcp.sh       # MCP servers
