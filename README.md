@@ -1,6 +1,6 @@
 # termux-linux-deployer
 
-Automated deployment of a full development environment inside proot-distro Ubuntu on Termux (Android/arm64). Deploys **Claude Code**, **Gemini CLI**, **code-server**, **Go**, **UV/Python**, **Node.js**, MCP servers, and a 5-agent pipeline framework.
+Automated deployment of a full development environment inside proot-distro Ubuntu on Termux (Android/arm64). Deploys **Claude Code**, **Gemini CLI**, **Codex CLI**, **code-server**, **Go**, **UV/Python**, **Node.js**, MCP servers, and a 5-agent pipeline framework.
 
 ## Target Device
 
@@ -31,6 +31,7 @@ graph TB
         subgraph "L2: AI CLI Tools"
             G["Gemini CLI<br/>@google/gemini-cli"]
             H["Claude Code<br/>npm primary / standalone fallback"]
+            CX["Codex CLI<br/>@openai/codex"]
         end
 
         subgraph "L3: IDE + Process Manager"
@@ -53,9 +54,9 @@ graph TB
 
     A --> B --> C
     A --> L
-    C --> D --> G & H
+    C --> D --> G & H & CX
     C --> I -->|supervises| J
-    G & H --> K --> M
+    G & H & CX --> K --> M
     H --> N
     I --> N
 ```
@@ -72,6 +73,7 @@ flowchart LR
         direction LR
         ND["setup-node"] --> GM["setup-gemini"]
         ND --> CL["setup-claude"]
+        ND --> CX["setup-codex"]
         CSM["setup-csm"] --> TM["setup-tmux"]
         TM --> EX["setup-extensions"]
         CL --> PL["setup-pipeline"]
@@ -330,6 +332,7 @@ termux-linux-deployer/
 │   │   ├── setup-node.sh              Node.js v22 LTS
 │   │   ├── setup-gemini.sh            Gemini CLI
 │   │   ├── setup-claude.sh            Claude Code (sanitized install)
+│   │   ├── setup-codex.sh             Codex CLI
 │   │   ├── setup-csm.sh              Go binary + code-server
 │   │   ├── setup-pipeline.sh          agents + settings merge
 │   │   ├── setup-mcp.sh              MCP servers

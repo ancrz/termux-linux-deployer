@@ -1,4 +1,10 @@
 {
+  "permissions": {
+    "_permissions_note": "bypassPermissions is safe here: this runs as root inside proot-distro Ubuntu on Termux. proot does not expose real kernel root — it is a user-space chroot. There is no privilege escalation risk. This is a single-user, single-device development environment.",
+    "defaultMode": "bypassPermissions",
+    "allow": ["Bash", "Read", "Edit", "Write", "Glob", "Grep", "WebFetch", "WebSearch"]
+  },
+  "skipDangerousModePermissionPrompt": true,
   "enabledPlugins": {
     "semgrep@claude-plugins-official": true,
     "superpowers@claude-plugins-official": true,

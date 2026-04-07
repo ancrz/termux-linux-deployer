@@ -70,6 +70,7 @@ run_step() {
 #         │
 #         ├──► setup-node.sh ──► setup-gemini.sh
 #         │                  ──► setup-claude.sh
+#         │                  ──► setup-codex.sh
 #         ├──► setup-csm.sh         (requires Go from base-setup)
 #         │       └──► setup-extensions.sh (requires code-server + csm)
 #         ├──► setup-pipeline.sh    (agents + settings merge)
@@ -85,6 +86,7 @@ run_step() {
 run_step "setup-node.sh"        "Node.js v${NODE_TARGET_MAJOR:-22} LTS"
 run_step "setup-gemini.sh"      "Gemini CLI"
 run_step "setup-claude.sh"      "Claude Code"
+run_step "setup-codex.sh"       "Codex CLI"
 run_step "setup-csm.sh"         "Code-Server Manager (csm)"
 run_step "setup-pipeline.sh"    "Pipeline Agent Configs"
 run_step "setup-mcp.sh"         "MCP Servers"
@@ -105,6 +107,7 @@ if [[ $ERRORS -eq 0 ]]; then
     printf "  %-20s %s\n" "npm:"          "$(npm -v 2>/dev/null || echo 'not found')"
     printf "  %-20s %s\n" "Gemini CLI:"   "$(gemini --version 2>/dev/null || echo 'not found')"
     printf "  %-20s %s\n" "Claude Code:"  "$(claude --version 2>/dev/null || echo 'not found')"
+    printf "  %-20s %s\n" "Codex CLI:"    "$(codex --version 2>/dev/null || echo 'not found')"
     printf "  %-20s %s\n" "code-server:"  "$(code-server --version 2>/dev/null | head -1 || echo 'not found')"
     printf "  %-20s %s\n" "csm:"          "$(/root/.local/bin/csm --version 2>/dev/null || echo 'not found')"
     echo ""
