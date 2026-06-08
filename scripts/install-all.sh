@@ -68,7 +68,7 @@ run_step() {
 #
 #   [install-ubuntu.sh runs base-setup.sh — provides Go, UV, system packages]
 #         │
-#         ├──► setup-node.sh ──► setup-gemini.sh
+#         ├──► setup-node.sh ──► setup-agy.sh
 #         │                  ──► setup-claude.sh
 #         │                  ──► setup-codex.sh
 #         ├──► setup-csm.sh         (requires Go from base-setup)
@@ -84,7 +84,7 @@ run_step() {
 #   bash scripts/ubuntu/base-setup.sh && bash scripts/install-all.sh
 
 run_step "setup-node.sh"        "Node.js v${NODE_TARGET_MAJOR:-22} LTS"
-run_step "setup-gemini.sh"      "Gemini CLI"
+run_step "setup-agy.sh"         "Antigravity CLI (agy)"
 run_step "setup-claude.sh"      "Claude Code"
 run_step "setup-codex.sh"       "Codex CLI"
 run_step "setup-csm.sh"         "Code-Server Manager (csm)"
@@ -105,7 +105,7 @@ if [[ $ERRORS -eq 0 ]]; then
     echo "Installed tools:"
     printf "  %-20s %s\n" "Node.js:"      "$(node -v 2>/dev/null || echo 'not found')"
     printf "  %-20s %s\n" "npm:"          "$(npm -v 2>/dev/null || echo 'not found')"
-    printf "  %-20s %s\n" "Gemini CLI:"   "$(gemini --version 2>/dev/null || echo 'not found')"
+    printf "  %-20s %s\n" "Antigravity CLI:" "$(agy --version 2>/dev/null || echo 'not found')"
     printf "  %-20s %s\n" "Claude Code:"  "$(claude --version 2>/dev/null || echo 'not found')"
     printf "  %-20s %s\n" "Codex CLI:"    "$(codex --version 2>/dev/null || echo 'not found')"
     printf "  %-20s %s\n" "code-server:"  "$(code-server --version 2>/dev/null | head -1 || echo 'not found')"

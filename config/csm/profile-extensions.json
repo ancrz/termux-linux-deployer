@@ -63,8 +63,8 @@
       "ms-azuretools.vscode-containers",
       "ms-kubernetes-tools.vscode-kubernetes-tools",
       "ms-python.debugpy",
-      "google.geminicodeassist",
-      "google.gemini-cli-vscode-ide-companion"
+      "google.antigravity-codeassist",
+      "google.antigravity-ide-companion"
     ]
   }
 }

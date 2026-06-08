@@ -1,6 +1,6 @@
 # termux-linux-deployer
 
-Automated deployment of a full development environment inside proot-distro Ubuntu on Termux (Android/arm64). Deploys **Claude Code**, **Gemini CLI**, **Codex CLI**, **code-server**, **Go**, **UV/Python**, **Node.js**, MCP servers, and a 5-agent pipeline framework.
+Automated deployment of a full development environment inside proot-distro Ubuntu on Termux (Android/arm64). Deploys **Claude Code**, **Antigravity CLI (agy)**, **Codex CLI**, **code-server**, **Go**, **UV/Python**, **Node.js**, MCP servers, and a 5-agent pipeline framework.
 
 ## Target Device
 
@@ -29,7 +29,7 @@ graph TB
         end
 
         subgraph "L2: AI CLI Tools"
-            G["Gemini CLI<br/>@google/gemini-cli"]
+            G["Antigravity CLI<br/>agy (Go binary)"]
             H["Claude Code<br/>npm primary / standalone fallback"]
             CX["Codex CLI<br/>@openai/codex"]
         end
@@ -40,7 +40,7 @@ graph TB
         end
 
         subgraph "L4: Agent Pipeline"
-            K["CLAUDE.md + GEMINI.md<br/>Archon - Ontos - Pragma<br/>Dokimos - Hermon"]
+            K["CLAUDE.md + AGENTS.md<br/>Archon - Ontos - Pragma<br/>Dokimos - Hermon"]
         end
 
         subgraph "L5: MCP Servers"
@@ -71,7 +71,7 @@ flowchart LR
 
     subgraph "Ubuntu proot: install-all.sh"
         direction LR
-        ND["setup-node"] --> GM["setup-gemini"]
+        ND["setup-node"] --> GM["setup-agy"]
         ND --> CL["setup-claude"]
         ND --> CX["setup-codex"]
         CSM["setup-csm"] --> TM["setup-tmux"]
@@ -285,7 +285,7 @@ flowchart TD
 flowchart LR
     subgraph Orchestrator
         direction TB
-        O["CLAUDE.md / GEMINI.md"]
+        O["CLAUDE.md / AGENTS.md"]
     end
 
     O -->|"new task"| AR["Archon<br/>opus<br/>Plan"]
@@ -305,7 +305,7 @@ flowchart LR
     style HM fill:#2ecc71
 ```
 
-Agents deployed to `~/.claude/agents/` and `~/.gemini/` by `setup-pipeline.sh`.
+Agents deployed to `~/.claude/agents/` and `~/.gemini/antigravity-cli/` by `setup-pipeline.sh`.
 
 ## MCP Servers
 
@@ -316,7 +316,7 @@ Agents deployed to `~/.claude/agents/` and `~/.gemini/` by `setup-pipeline.sh`.
 | skill-swarm | Python venv | stdio | `GITHUB_PERSONAL_ACCESS_TOKEN` |
 | google-workspace-mcp | npx (on-demand) | stdio | OAuth (one-time) |
 
-Registered in both `~/.claude/settings.json` and `~/.gemini/settings.json` with token substitution via `envsubst`.
+Registered in `~/.claude/settings.json` and `~/.gemini/antigravity-cli/mcp_config.json` with token substitution via `envsubst`.
 
 ## Project Structure
 
@@ -330,7 +330,7 @@ termux-linux-deployer/
 │   │   ├── lib/common.sh              shared: colors, logging, validators
 │   │   ├── base-setup.sh              system packages + Go + UV
 │   │   ├── setup-node.sh              Node.js v22 LTS
-│   │   ├── setup-gemini.sh            Gemini CLI
+│   │   ├── setup-agy.sh               Antigravity CLI (agy)
 │   │   ├── setup-claude.sh            Claude Code (sanitized install)
 │   │   ├── setup-codex.sh             Codex CLI
 │   │   ├── setup-csm.sh              Go binary + code-server
@@ -343,7 +343,7 @@ termux-linux-deployer/
 ├── cmd/csm/                           Go source (code-server manager)
 ├── config/
 │   ├── claude/                        settings.json + CLAUDE.md + agents/
-│   ├── gemini/                        settings.json + GEMINI.md + agents
+│   ├── agy/                           settings.json + AGENTS.md + agents
 │   ├── csm/                          profile-extensions.json
 │   └── tmux/                          tmux.conf
 ├── docs/

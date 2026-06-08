@@ -1,0 +1,30 @@
+{
+  "security": {
+    "auth": {
+      "selectedType": "oauth-personal"
+    }
+  },
+  "ui": {
+    "useAlternateBuffer": true,
+    "showMemoryUsage": true
+  },
+  "general": {
+    "previewFeatures": true,
+    "enableAutoUpdate": true,
+    "sessionRetention": {
+      "warningAcknowledged": true,
+      "enabled": true,
+      "maxAge": "30d"
+    },
+    "vimMode": true
+  },
+  "ide": {
+    "enabled": true
+  },
+  "experimental": {
+    "plan": true,
+    "gemmaModelRouter": {
+      "enabled": true
+    }
+  }
+}

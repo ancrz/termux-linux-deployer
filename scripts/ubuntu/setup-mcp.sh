@@ -6,6 +6,7 @@
 #   1. GitHub MCP Server (Go binary, arm64 release from GitHub).
 #   2. skill-swarm (Python, cloned from GitHub + venv).
 #   3. Registers all MCPs with Claude Code if claude CLI is available.
+#      (Note: Antigravity CLI MCPs are registered declaratively in setup-pipeline.sh)
 # Idempotent: checks binary/directory existence before install.
 # Must run as root inside proot-distro Ubuntu.
 #

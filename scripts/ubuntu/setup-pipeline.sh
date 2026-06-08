@@ -23,10 +23,10 @@ load_env
 DEPLOYER_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 CLAUDE_CONFIG_SRC="$DEPLOYER_DIR/config/claude"
-GEMINI_CONFIG_SRC="$DEPLOYER_DIR/config/gemini"
+AGY_CONFIG_SRC="$DEPLOYER_DIR/config/agy"
 
 CLAUDE_TARGET="/root/.claude"
-GEMINI_TARGET="/root/.gemini"
+AGY_TARGET="/root/.gemini/antigravity-cli"
 
 # --- Pre-flight --------------------------------------------------------------
 
@@ -97,51 +97,60 @@ done
 
 log_success "Deployed ${DEPLOYED_AGENTS}/5 Claude agent files"
 
-# --- Gemini CLI Deployment ---------------------------------------------------
+# --- Antigravity CLI (agy) Deployment ----------------------------------------
 
-log_header "Gemini CLI Config"
+log_header "Antigravity CLI (agy) Config"
 
-mkdir -p "$GEMINI_TARGET"
+mkdir -p "$AGY_TARGET"
+mkdir -p "$AGY_TARGET/agents"
 
-# GEMINI.md: Gemini project context file.
-if [[ -f "$GEMINI_CONFIG_SRC/GEMINI.md" ]]; then
-    cp "$GEMINI_CONFIG_SRC/GEMINI.md" "$GEMINI_TARGET/GEMINI.md"
-    log_success "Deployed GEMINI.md"
+# AGENTS.md: Antigravity project context file.
+if [[ -f "$AGY_CONFIG_SRC/AGENTS.md" ]]; then
+    cp "$AGY_CONFIG_SRC/AGENTS.md" "$AGY_TARGET/AGENTS.md"
+    log_success "Deployed AGENTS.md"
 else
-    log_warn "GEMINI.md not found in $GEMINI_CONFIG_SRC — skipping"
+    log_warn "AGENTS.md not found in $AGY_CONFIG_SRC — skipping"
 fi
 
-# settings.json: may contain ${VAR} placeholders for tokens.
-# Apply envsubst if available and the token is set; otherwise deploy as-is.
-if [[ -f "$GEMINI_CONFIG_SRC/settings.json" ]]; then
+# settings.json
+if [[ -f "$AGY_CONFIG_SRC/settings.json" ]]; then
+    cp "$AGY_CONFIG_SRC/settings.json" "$AGY_TARGET/settings.json"
+    log_success "Antigravity settings.json deployed"
+else
+    log_warn "Antigravity settings.json not found — skipping"
+fi
+
+# mcp_config.json: may contain ${VAR} placeholders for tokens.
+if [[ -f "$AGY_CONFIG_SRC/mcp_config.json" ]]; then
     if validate_cmd "envsubst" && [[ -n "${GITHUB_PERSONAL_ACCESS_TOKEN:-}" ]]; then
-        envsubst < "$GEMINI_CONFIG_SRC/settings.json" > "$GEMINI_TARGET/settings.json"
-        log_success "Gemini settings.json deployed with token substitution"
+        envsubst < "$AGY_CONFIG_SRC/mcp_config.json" > "$AGY_TARGET/mcp_config.json"
+        log_success "Antigravity mcp_config.json deployed with token substitution"
     else
-        cp "$GEMINI_CONFIG_SRC/settings.json" "$GEMINI_TARGET/settings.json"
+        cp "$AGY_CONFIG_SRC/mcp_config.json" "$AGY_TARGET/mcp_config.json"
         if ! validate_cmd "envsubst"; then
-            log_warn "envsubst not available — deployed template as-is (install gettext for substitution)"
+            log_warn "envsubst not available — deployed template as-is"
         elif [[ -z "${GITHUB_PERSONAL_ACCESS_TOKEN:-}" ]]; then
             log_warn "GITHUB_PERSONAL_ACCESS_TOKEN not set — deployed template as-is"
         fi
     fi
 else
-    log_warn "Gemini settings.json not found — skipping"
+    log_warn "Antigravity mcp_config.json not found — skipping"
 fi
 
-# Agent files: archon, ontos, pragma, dokimos, hermon (lowercase for Gemini).
-DEPLOYED_GEMINI_AGENTS=0
+# Agent files: archon, ontos, pragma, dokimos, hermon.
+DEPLOYED_AGY_AGENTS=0
 for agent in archon ontos pragma dokimos hermon; do
-    src="$GEMINI_CONFIG_SRC/${agent}.md"
+    src="$AGY_CONFIG_SRC/agents/${agent}/agent.json"
     if [[ -f "$src" ]]; then
-        cp "$src" "$GEMINI_TARGET/${agent}.md"
-        DEPLOYED_GEMINI_AGENTS=$((DEPLOYED_GEMINI_AGENTS + 1))
+        mkdir -p "$AGY_TARGET/agents/${agent}"
+        cp "$src" "$AGY_TARGET/agents/${agent}/agent.json"
+        DEPLOYED_AGY_AGENTS=$((DEPLOYED_AGY_AGENTS + 1))
     else
-        log_warn "Gemini agent file not found: ${src} — skipping"
+        log_warn "Antigravity agent file not found: ${src} — skipping"
     fi
 done
 
-log_success "Deployed ${DEPLOYED_GEMINI_AGENTS}/5 Gemini agent files"
+log_success "Deployed ${DEPLOYED_AGY_AGENTS}/5 Antigravity agent files"
 
 # --- Git Identity ------------------------------------------------------------
 
@@ -165,10 +174,11 @@ printf "  %-28s %s\n" "  CLAUDE.md:" "$([ -f "$CLAUDE_TARGET/CLAUDE.md" ] && ech
 printf "  %-28s %s\n" "  settings.json:" "$([ -f "$CLAUDE_TARGET/settings.json" ] && echo 'OK' || echo 'MISSING')"
 printf "  %-28s %s\n" "  agents:" "${DEPLOYED_AGENTS}/5"
 echo ""
-printf "  %-28s %s\n" "Gemini config target:" "$GEMINI_TARGET"
-printf "  %-28s %s\n" "  GEMINI.md:" "$([ -f "$GEMINI_TARGET/GEMINI.md" ] && echo 'OK' || echo 'MISSING')"
-printf "  %-28s %s\n" "  settings.json:" "$([ -f "$GEMINI_TARGET/settings.json" ] && echo 'OK' || echo 'MISSING')"
-printf "  %-28s %s\n" "  agents:" "${DEPLOYED_GEMINI_AGENTS}/5"
+printf "  %-28s %s\n" "Antigravity config target:" "$AGY_TARGET"
+printf "  %-28s %s\n" "  AGENTS.md:" "$([ -f "$AGY_TARGET/AGENTS.md" ] && echo 'OK' || echo 'MISSING')"
+printf "  %-28s %s\n" "  settings.json:" "$([ -f "$AGY_TARGET/settings.json" ] && echo 'OK' || echo 'MISSING')"
+printf "  %-28s %s\n" "  mcp_config.json:" "$([ -f "$AGY_TARGET/mcp_config.json" ] && echo 'OK' || echo 'MISSING')"
+printf "  %-28s %s\n" "  agents:" "${DEPLOYED_AGY_AGENTS}/5"
 echo ""
 
 log_success "Pipeline agent config deployment complete"
