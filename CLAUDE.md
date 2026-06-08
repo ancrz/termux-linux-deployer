@@ -38,7 +38,7 @@ scripts/termux/     — Termux-side scripts (install, login wrapper)
 scripts/ubuntu/     — Ubuntu-side scripts (setup components)
 scripts/ubuntu/lib/ — Shared functions (colors, logging, validators)
 cmd/csm/            — Go source for code-server manager
-config/             — Agent definitions + settings for Claude & Gemini
+config/             — Agent definitions + settings for Claude & Antigravity (agy)
 docs/               — Original reference scripts from Google Drive
 ```
 
@@ -51,7 +51,7 @@ bash scripts/install-all.sh
 # Individual components
 bash scripts/ubuntu/base-setup.sh      # System packages + Rust + Go + UV
 bash scripts/ubuntu/setup-node.sh      # Node.js v22
-bash scripts/ubuntu/setup-gemini.sh    # Gemini CLI
+bash scripts/ubuntu/setup-agy.sh       # Antigravity CLI (agy)
 bash scripts/ubuntu/setup-claude.sh    # Claude Code
 bash scripts/ubuntu/setup-codex.sh     # Codex CLI
 bash scripts/ubuntu/setup-csm.sh       # Build csm + install code-server
