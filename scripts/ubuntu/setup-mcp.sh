@@ -27,7 +27,7 @@ GH_MCP_BIN="/root/.local/bin/github-mcp-server"
 GH_MCP_URL="https://github.com/github/github-mcp-server/releases/download/${GH_MCP_VERSION}/github-mcp-server_Linux_arm64.tar.gz"
 
 SKILL_SWARM_DIR="/root/.local/share/skill-swarm"
-SKILL_SWARM_REPO="https://github.com/BinaryBoss-dev/skill-swarm.git"
+SKILL_SWARM_REPO="https://github.com/ancrz/skill-swarm-mcp.git"
 
 # --- Pre-flight --------------------------------------------------------------
 
@@ -111,9 +111,6 @@ if validate_cmd "claude"; then
     log_step "Registering sequential-thinking MCP"
     claude mcp add sequential-thinking -- npx -y @modelcontextprotocol/server-sequential-thinking 2>/dev/null || true
 
-    log_step "Registering google-workspace-mcp"
-    claude mcp add google-workspace-mcp -- npx google-workspace-mcp serve 2>/dev/null || true
-
     if [[ -f "$GH_MCP_BIN" ]]; then
         log_step "Registering GitHub MCP Server"
         claude mcp add github-mcp-server -- "$GH_MCP_BIN" stdio 2>/dev/null || true
@@ -131,21 +128,5 @@ else
     log_warn "claude CLI not found — MCP registration skipped"
     log_warn "Run setup-claude.sh first, then re-run this script to register MCPs"
 fi
-
-# --- Google Workspace OAuth Instructions ------------------------------------
-
-log_header "Google Workspace OAuth Setup"
-
-log_warn "Google Workspace MCP requires one-time OAuth authentication."
-log_step "To complete setup, choose one of:"
-echo ""
-echo "  Option A (from Termux, not proot):"
-echo "    termux-open-url 'https://accounts.google.com/o/oauth2/...'"
-echo ""
-echo "  Option B (from inside proot):"
-echo "    npx google-workspace-mcp auth"
-echo ""
-echo "  Then follow the browser prompts. The token is saved automatically."
-echo ""
 
 log_success "MCP setup complete"

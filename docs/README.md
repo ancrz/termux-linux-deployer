@@ -70,7 +70,7 @@ bash scripts/install-all.sh
 3. **setup-claude.sh** — Claude Code (standalone installer, npm fallback)
 4. **setup-csm.sh** — Builds `csm` Go binary + installs code-server
 5. **setup-pipeline.sh** — Deploys agent configs (CLAUDE.md, GEMINI.md, Archon/Ontos/Pragma/Dokimos/Hermon)
-6. **setup-mcp.sh** — GitHub MCP binary (arm64) + skill-swarm + google-workspace-mcp
+6. **setup-mcp.sh** — GitHub MCP binary (arm64) + skill-swarm
 
 ### After setup — start code-server
 ```bash

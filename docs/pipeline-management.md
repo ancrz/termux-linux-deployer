@@ -204,7 +204,6 @@ settings.json merge (setup-pipeline.sh). Both methods coexist:
 | sequential-thinking | npx | stdio |
 | github-mcp-server | Go binary (arm64) | stdio |
 | skill-swarm | Python venv | stdio |
-| google-workspace-mcp | npx | stdio |
 
 ### Gemini CLI
 

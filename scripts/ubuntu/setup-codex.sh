@@ -63,7 +63,7 @@ fi
 
 if [[ "$DO_INSTALL" -eq 1 ]]; then
     log_step "Installing/upgrading Codex CLI"
-    if npm install -g "${CODEX_PKG}@latest" --no-audit; then
+    if npm install -g "${CODEX_PKG}@latest" --include=optional --no-audit; then
         log_success "Codex CLI installed"
     else
         log_fail "Codex CLI installation failed"
@@ -78,6 +78,8 @@ log_header "Validation"
 if validate_cmd "codex"; then
     CODEX_VER="$(codex --version 2>/dev/null || echo 'version unavailable')"
     log_success "Codex CLI: ${CODEX_VER}"
+    log_step "Running health check (codex doctor)..."
+    TERM=xterm-256color codex doctor >/dev/null 2>&1 || true
 else
     log_fail "codex command not found after install attempt"
     exit 1

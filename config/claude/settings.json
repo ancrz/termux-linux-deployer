@@ -2,7 +2,16 @@
   "permissions": {
     "_permissions_note": "bypassPermissions is safe here: this runs as root inside proot-distro Ubuntu on Termux. proot does not expose real kernel root — it is a user-space chroot. There is no privilege escalation risk. This is a single-user, single-device development environment.",
     "defaultMode": "bypassPermissions",
-    "allow": ["Bash", "Read", "Edit", "Write", "Glob", "Grep", "WebFetch", "WebSearch"]
+    "allow": [
+      "Bash",
+      "Read",
+      "Edit",
+      "Write",
+      "Glob",
+      "Grep",
+      "WebFetch",
+      "WebSearch"
+    ]
   },
   "skipDangerousModePermissionPrompt": true,
   "enabledPlugins": {
@@ -16,25 +25,29 @@
   "mcpServers": {
     "sequential-thinking": {
       "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-sequential-thinking"]
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-sequential-thinking"
+      ]
     },
     "github-mcp-server": {
       "command": "/root/.local/bin/github-mcp-server",
-      "args": ["stdio"],
+      "args": [
+        "stdio"
+      ],
       "env": {
         "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_PERSONAL_ACCESS_TOKEN}"
       }
     },
     "skill-swarm": {
       "command": "/root/.local/share/skill-swarm/.venv/bin/python",
-      "args": ["-m", "skill_swarm.server"],
+      "args": [
+        "-m",
+        "skill_swarm.server"
+      ],
       "env": {
         "SKILL_SWARM_GITHUB_TOKEN": "${GITHUB_PERSONAL_ACCESS_TOKEN}"
       }
-    },
-    "google-workspace-mcp": {
-      "command": "npx",
-      "args": ["google-workspace-mcp", "serve"]
     }
   },
   "statusLine": {

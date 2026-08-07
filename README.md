@@ -44,7 +44,7 @@ graph TB
         end
 
         subgraph "L5: MCP Servers"
-            M["sequential-thinking<br/>github-mcp-server<br/>skill-swarm<br/>google-workspace-mcp"]
+            M["sequential-thinking<br/>github-mcp-server<br/>skill-swarm"]
         end
 
         subgraph "L6: Session + Auth + Extensions"
@@ -314,7 +314,6 @@ Agents deployed to `~/.claude/agents/` and `~/.gemini/antigravity-cli/` by `setu
 | sequential-thinking | npx (on-demand) | stdio | None |
 | github-mcp-server | Go arm64 binary | stdio | `GITHUB_PERSONAL_ACCESS_TOKEN` |
 | skill-swarm | Python venv | stdio | `GITHUB_PERSONAL_ACCESS_TOKEN` |
-| google-workspace-mcp | npx (on-demand) | stdio | OAuth (one-time) |
 
 Registered in `~/.claude/settings.json` and `~/.gemini/antigravity-cli/mcp_config.json` with token substitution via `envsubst`.
 
@@ -377,7 +376,6 @@ See `.env.example` for the full list. Key variables:
 | `GITHUB_USERNAME` | git credential store | Yes |
 | `CS_PASSWORD` | csm config | Yes |
 | `GIT_USER_NAME` / `GIT_USER_EMAIL` | git config | Recommended |
-| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | google-workspace-mcp | For Google APIs |
 
 ## Idempotency
 
