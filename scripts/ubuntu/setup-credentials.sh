@@ -135,8 +135,7 @@ echo ""
 echo "  Gemini CLI:"
 echo "    Run 'gemini auth' to authenticate with Google."
 echo ""
-echo "  Google Workspace MCP:"
-echo "    Run 'npx google-workspace-mcp auth' for one-time OAuth."
+
 echo ""
 
 log_success "Credentials setup complete"
