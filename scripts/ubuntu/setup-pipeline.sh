@@ -73,8 +73,15 @@ if [[ -f "$CLAUDE_CONFIG_SRC/settings.json" ]]; then
     if [[ -f "$CLAUDE_TARGET/settings.json" ]] && validate_cmd "jq"; then
         # Merge: source * existing → source keys win, existing extras preserved
         EXISTING_JSON="$(cat "$CLAUDE_TARGET/settings.json")"
-        echo "$EXISTING_JSON" | jq -s '.[0] * .[1]' - <(echo "$SOURCE_JSON") > "$CLAUDE_TARGET/settings.json"
-        log_success "Merged Claude settings.json (preserved existing + applied source)"
+        settings_tmp="$(mktemp "$CLAUDE_TARGET/.settings.json.XXXXXX")"
+        if printf '%s\n%s\n' "$EXISTING_JSON" "$SOURCE_JSON" | jq -s '.[0] * .[1]' > "$settings_tmp"; then
+            mv "$settings_tmp" "$CLAUDE_TARGET/settings.json"
+            log_success "Merged Claude settings.json (preserved existing + applied source)"
+        else
+            rm -f "$settings_tmp"
+            log_fail "Could not merge Claude settings.json"
+            exit 1
+        fi
     else
         echo "$SOURCE_JSON" > "$CLAUDE_TARGET/settings.json"
         log_success "Deployed Claude settings.json (fresh install)"

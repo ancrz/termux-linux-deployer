@@ -137,10 +137,20 @@ smart_install_packages() {
     # Step 4: Deduplicate and install.
     local -a TO_PROCESS=()
     if [[ ${#MISSING[@]} -gt 0 || ${#UPGRADABLE[@]} -gt 0 ]]; then
-        # Merge arrays and deduplicate via sort -u.
-        mapfile -t TO_PROCESS < <(
-            printf '%s\n' "${MISSING[@]}" "${UPGRADABLE[@]}" | sort -u
-        )
+        # Do not use Bash process substitution here: PRoot may not expose the
+        # temporary /dev/fd descriptor it requires. Real files work reliably.
+        local packages_tmp packages_sorted_tmp
+        packages_tmp="$(mktemp /tmp/deployer-packages.XXXXXX)"
+        packages_sorted_tmp="$(mktemp /tmp/deployer-packages-sorted.XXXXXX)"
+
+        printf '%s\n' "${MISSING[@]}" "${UPGRADABLE[@]}" > "$packages_tmp"
+        if ! sort -u "$packages_tmp" > "$packages_sorted_tmp"; then
+            rm -f "$packages_tmp" "$packages_sorted_tmp"
+            log_fail "Could not deduplicate package list"
+            return 1
+        fi
+        mapfile -t TO_PROCESS < "$packages_sorted_tmp"
+        rm -f "$packages_tmp" "$packages_sorted_tmp"
     fi
 
     if [[ ${#TO_PROCESS[@]} -gt 0 ]]; then

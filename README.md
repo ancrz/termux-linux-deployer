@@ -120,6 +120,17 @@ bash scripts/termux/login-ubuntu.sh
 bash /root/deployer/scripts/install-all.sh
 ```
 
+### PRoot notes
+
+`setup-agy.sh` detects PRoot and installs Antigravity CLI (`agy`) with Google's
+official PRoot-compatible installer. It persists `/root/.local/bin` in
+`~/.bashrc` and `~/.profile`, so `agy` is available automatically in new shells.
+If the shell was already open while the installer ran, reload it once:
+
+```bash
+source ~/.bashrc
+```
+
 ### 4. Start code-server (with tmux for persistence)
 
 ```bash

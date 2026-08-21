@@ -4,7 +4,8 @@
 #
 # Covers: Python layer (UV + target Python version) + Antigravity CLI layer.
 # Note: agy is a Go binary, but Python is still set up for other tools like skill-swarm.
-# Uses the community installer to patch arm64 TCMalloc issues for proot compatibility.
+# Uses Google's official installer inside PRoot. The community installer is kept
+# for native Termux, where it provides the required standalone compatibility patch.
 # Idempotent: checks local agy version.
 # Must run as root inside proot-distro Ubuntu.
 #
@@ -78,9 +79,15 @@ else
 fi
 
 if [[ "$DO_INSTALL" -eq 1 ]]; then
-    log_step "Installing Antigravity CLI via community termux patcher (${AGY_REPO})"
-    
-    if curl -fsSL "https://raw.githubusercontent.com/${AGY_REPO}/dev/install.sh" | bash; then
+    if grep -qi 'proot' /proc/version 2>/dev/null; then
+        log_step "Installing Antigravity CLI via the official PRoot-compatible installer"
+        INSTALL_CMD=(curl -fsSL https://antigravity.google/cli/install.sh)
+    else
+        log_step "Installing Antigravity CLI via community Termux patcher (${AGY_REPO})"
+        INSTALL_CMD=(curl -fsSL "https://raw.githubusercontent.com/${AGY_REPO}/dev/install.sh")
+    fi
+
+    if "${INSTALL_CMD[@]}" | bash; then
         log_success "Antigravity CLI installed successfully."
     else
         log_fail "Antigravity CLI installation failed."
