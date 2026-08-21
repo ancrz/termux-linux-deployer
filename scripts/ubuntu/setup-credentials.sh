@@ -7,7 +7,7 @@
 #   - GitHub authentication (gh auth or git-credentials for private repos)
 #   - GitHub CLI installation if missing
 #
-# Claude Code and Gemini CLI handle their own auth interactively on first run.
+# Claude Code and Antigravity CLI handle their own auth interactively on first run.
 # This script prepares everything else so those first-run flows succeed.
 #
 # Idempotent: skips steps already configured.
@@ -132,8 +132,8 @@ echo ""
 echo "  Claude Code:"
 echo "    Run 'claude' and follow the OAuth/API key prompt."
 echo ""
-echo "  Gemini CLI:"
-echo "    Run 'gemini auth' to authenticate with Google."
+echo "  Antigravity CLI (agy):"
+echo "    Run 'agy' and follow the authentication prompt."
 echo ""
 
 echo ""

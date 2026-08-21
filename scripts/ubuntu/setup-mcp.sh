@@ -5,8 +5,7 @@
 # Installs:
 #   1. GitHub MCP Server (Go binary, arm64 release from GitHub).
 #   2. skill-swarm (Python, cloned from GitHub + venv).
-#   3. Registers all MCPs with Claude Code if claude CLI is available.
-#      (Note: Antigravity CLI MCPs are registered declaratively in setup-pipeline.sh)
+#   3. Registers skill-swarm globally with Claude Code, agy, and Codex.
 # Idempotent: checks binary/directory existence before install.
 # Must run as root inside proot-distro Ubuntu.
 #
@@ -28,6 +27,9 @@ GH_MCP_URL="https://github.com/github/github-mcp-server/releases/download/${GH_M
 
 SKILL_SWARM_DIR="/root/.local/share/skill-swarm"
 SKILL_SWARM_REPO="https://github.com/ancrz/skill-swarm-mcp.git"
+SKILL_SWARM_PYTHON="$SKILL_SWARM_DIR/.venv/bin/python"
+SKILL_SWARM_ENV_FILE="${SKILL_SWARM_ENV_FILE:-/root/.env}"
+SKILL_SWARM_DEV_SOURCE="${SKILL_SWARM_SOURCE_DIR:-$HOME/Documents/workspaces/skill-swarm-mcp}"
 
 # --- Pre-flight --------------------------------------------------------------
 
@@ -91,19 +93,48 @@ fi
 
 python3 -m venv .venv
 
-# Install as editable package if setup.py/pyproject.toml exists; fall back
-# to requirements.txt; log a warning if neither works (non-fatal).
-if .venv/bin/pip install -q -e . 2>/dev/null; then
+SKILL_SWARM_INSTALL_SOURCE="$SKILL_SWARM_DIR"
+if [[ -f "$SKILL_SWARM_DEV_SOURCE/pyproject.toml" \
+      && -f "$SKILL_SWARM_DEV_SOURCE/skill/SKILL.md" ]]; then
+    SKILL_SWARM_INSTALL_SOURCE="$SKILL_SWARM_DEV_SOURCE"
+    log_step "Using workspace skill-swarm source: $SKILL_SWARM_INSTALL_SOURCE"
+fi
+
+# Install as an editable package so the absolute interpreter works from every
+# client and working directory. A stale/broken MCP is worse than a failed setup,
+# so dependency errors stop the pipeline.
+if .venv/bin/pip install -q -e "$SKILL_SWARM_INSTALL_SOURCE" 2>/dev/null; then
     log_success "skill-swarm installed as editable package"
-elif [[ -f requirements.txt ]] && .venv/bin/pip install -q -r requirements.txt 2>/dev/null; then
-    log_success "skill-swarm installed from requirements.txt"
 else
-    log_warn "skill-swarm pip install had issues — MCP server may not start correctly"
+    log_fail "skill-swarm dependency installation failed"
+    exit 1
 fi
 
 log_success "skill-swarm ready: $SKILL_SWARM_DIR"
 
-# --- 3. Register MCPs with Claude Code --------------------------------------
+log_step "Bootstrapping the global skill-swarm controller skill"
+if SKILL_SWARM_ENV_FILE="$SKILL_SWARM_ENV_FILE" "$SKILL_SWARM_PYTHON" - "$SKILL_SWARM_INSTALL_SOURCE/skill" <<'PY'
+import asyncio
+import sys
+
+from skill_swarm.core.installer import install_skill, migrate_legacy_skills_dir
+
+migrate_legacy_skills_dir()
+result = asyncio.run(
+    install_skill("skill-swarm", sys.argv[1], ["claude", "agy", "codex"])
+)
+if not result.success:
+    raise SystemExit("; ".join(result.errors))
+print(result.install_path)
+PY
+then
+    log_success "Global controller skill installed and client links reconciled"
+else
+    log_fail "Could not install the global skill-swarm controller skill"
+    exit 1
+fi
+
+# --- 3. Register MCPs globally ----------------------------------------------
 
 log_header "Claude Code MCP Registration"
 
@@ -116,9 +147,12 @@ if validate_cmd "claude"; then
         claude mcp add github-mcp-server -- "$GH_MCP_BIN" stdio 2>/dev/null || true
     fi
 
-    if [[ -f "$SKILL_SWARM_DIR/.venv/bin/python" ]]; then
-        log_step "Registering skill-swarm MCP"
-        claude mcp add skill-swarm -- "$SKILL_SWARM_DIR/.venv/bin/python" -m skill_swarm.server 2>/dev/null || true
+    if [[ -f "$SKILL_SWARM_PYTHON" ]]; then
+        log_step "Registering global skill-swarm MCP"
+        claude mcp remove --scope user skill-swarm 2>/dev/null || true
+        claude mcp add --scope user skill-swarm \
+            -e "SKILL_SWARM_ENV_FILE=$SKILL_SWARM_ENV_FILE" \
+            -- "$SKILL_SWARM_PYTHON" -m skill_swarm.server
     fi
 
     log_success "MCPs registered with Claude Code"
@@ -127,6 +161,26 @@ if validate_cmd "claude"; then
 else
     log_warn "claude CLI not found — MCP registration skipped"
     log_warn "Run setup-claude.sh first, then re-run this script to register MCPs"
+fi
+
+log_header "Antigravity CLI MCP Registration"
+if validate_cmd "agy" && [[ -f "$SKILL_SWARM_PYTHON" ]]; then
+    agy mcp remove skill-swarm 2>/dev/null || true
+    agy mcp add --env "SKILL_SWARM_ENV_FILE=$SKILL_SWARM_ENV_FILE" \
+        skill-swarm "$SKILL_SWARM_PYTHON" -m skill_swarm.server
+    log_success "skill-swarm registered globally with agy"
+else
+    log_warn "agy or skill-swarm Python not found — global registration skipped"
+fi
+
+log_header "Codex MCP Registration"
+if validate_cmd "codex" && [[ -f "$SKILL_SWARM_PYTHON" ]]; then
+    codex mcp remove skill-swarm 2>/dev/null || true
+    codex mcp add --env "SKILL_SWARM_ENV_FILE=$SKILL_SWARM_ENV_FILE" \
+        skill-swarm -- "$SKILL_SWARM_PYTHON" -m skill_swarm.server
+    log_success "skill-swarm registered globally with Codex"
+else
+    log_warn "codex or skill-swarm Python not found — global registration skipped"
 fi
 
 log_success "MCP setup complete"

@@ -371,7 +371,14 @@ does not define a stable filesystem discovery path.
 | github-mcp-server | Go arm64 binary | stdio | `GITHUB_PERSONAL_ACCESS_TOKEN` |
 | skill-swarm | Python venv | stdio | `GITHUB_PERSONAL_ACCESS_TOKEN` |
 
-Registered in `~/.claude/settings.json` and `~/.gemini/antigravity-cli/mcp_config.json` with token substitution via `envsubst`.
+`setup-mcp.sh` installs Skill Swarm once in
+`~/.local/share/skill-swarm/.venv` and registers that absolute interpreter
+globally with Claude Code (user scope), agy, and Codex. It also installs the
+controller skill canonically in `~/.agents/skills/skill-swarm` and reconciles
+links for Claude and both supported agy skill directories. Re-running the setup
+is idempotent; existing managed skills are preserved and missing links repaired.
+Optional secrets are read at process startup through
+`SKILL_SWARM_ENV_FILE` (default: `~/.env`).
 
 ## Project Structure
 
