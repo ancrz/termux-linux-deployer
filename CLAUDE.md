@@ -39,7 +39,6 @@ scripts/ubuntu/     — Ubuntu-side scripts (setup components)
 scripts/ubuntu/lib/ — Shared functions (colors, logging, validators)
 cmd/csm/            — Go source for code-server manager
 config/             — Agent definitions + settings for Claude & Antigravity (agy)
-docs/               — Original reference scripts from Google Drive
 ```
 
 ## Key Commands

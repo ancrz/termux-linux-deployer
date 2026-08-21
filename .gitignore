@@ -1,6 +1,9 @@
 # Environment secrets
 .env
 
+# Local documentation workspace
+/docs/
+
 # Reference scripts from Google Drive (functional originals, RE source)
 
 # Go binary

@@ -91,7 +91,7 @@ validate_internet() {
 #
 # Usage: smart_install_packages pkg1 pkg2 pkg3 ...
 #
-# Strategy (mirrors docs/ubuntu-base-setup.sh lines 49-89):
+# Strategy:
 #   1. Find packages from the list that are not installed at all.
 #   2. Refresh apt package lists.
 #   3. Find packages from the list that are installed but upgradable.

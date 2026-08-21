@@ -410,10 +410,6 @@ termux-linux-deployer/
 │   ├── csm/                          profile-extensions.json
 │   ├── shell/                         native Bash banner + menu + aliases
 │   └── tmux/                          tmux.conf
-├── docs/
-│   ├── pipeline-management.md         full operational reference
-│   ├── rust-proot-known-issue.md      Rust segfault documentation
-│   └── *.sh                           original reference scripts
 ├── .env.example                       environment template
 └── README.md
 ```
@@ -422,7 +418,7 @@ termux-linux-deployer/
 
 | Feature | Mechanism |
 |---------|-----------|
-| Rust segfault | Graceful skip + documentation |
+| Rust segfault | Graceful skip with a troubleshooting note |
 | Extension malloc crash | Deferred retry loop (5 rounds, error classification) |
 | npm/standalone conflict | Auto-detect + sanitize conflicting artifacts |
 | code-server slow start | Adaptive health check (5 retries x 3s) |
