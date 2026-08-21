@@ -73,7 +73,17 @@ _ok "Ubuntu rootfs installed"
 
 # --- Step 4: Copy deployer files into rootfs ---------------------------------
 
-ROOTFS="/data/data/com.termux/files/usr/var/lib/proot-distro/installed-rootfs/ubuntu"
+# proot-distro currently stores rootfs files under containers/, while older
+# releases used installed-rootfs/. Support both layouts for repeatable setup.
+PROOT_DATA_DIR="${PREFIX:-/data/data/com.termux/files/usr}/var/lib/proot-distro"
+if [[ -d "$PROOT_DATA_DIR/containers/ubuntu/rootfs" ]]; then
+    ROOTFS="$PROOT_DATA_DIR/containers/ubuntu/rootfs"
+elif [[ -d "$PROOT_DATA_DIR/installed-rootfs/ubuntu" ]]; then
+    ROOTFS="$PROOT_DATA_DIR/installed-rootfs/ubuntu"
+else
+    _fail "Ubuntu rootfs not found under $PROOT_DATA_DIR"
+    exit 1
+fi
 DEPLOY_TARGET="$ROOTFS/root/deployer"
 
 _info "Copying deployer files into proot rootfs: $DEPLOY_TARGET"
@@ -84,8 +94,8 @@ cp -r "$SCRIPT_DIR/../ubuntu" "$DEPLOY_TARGET/scripts/"
 
 # Copy Go source for csm and config files.
 if [[ -d "$PROJECT_DIR/cmd" ]]; then
-    cp -r "$PROJECT_DIR/cmd" "$ROOTFS/root/"
-    _ok "Copied cmd/ to $ROOTFS/root/"
+    cp -r "$PROJECT_DIR/cmd" "$DEPLOY_TARGET/"
+    _ok "Copied cmd/ to $DEPLOY_TARGET/"
 else
     _warn "cmd/ not found at $PROJECT_DIR/cmd — csm build will fail"
 fi
@@ -95,6 +105,21 @@ if [[ -d "$PROJECT_DIR/config" ]]; then
     _ok "Copied config/ to $DEPLOY_TARGET/"
 else
     _warn "config/ not found — setup-pipeline.sh will have nothing to deploy"
+fi
+
+# The Topos pipeline is intentionally kept as a sibling source repository.
+# Bundle that canonical checkout into the fresh rootfs so the Ubuntu-side
+# installer can inject global Claude, Antigravity and Codex configuration
+# without network access or a project-local fallback.
+PIPELINE_SOURCE_HOST="${PIPELINE_SOURCE_DIR:-$(dirname "$PROJECT_DIR")/pipeline-agentic}"
+if [[ -f "$PIPELINE_SOURCE_HOST/claude/CLAUDE.md" \
+      && -f "$PIPELINE_SOURCE_HOST/gemini/gemini-cli/GEMINI.md" \
+      && -f "$PIPELINE_SOURCE_HOST/codex/AGENTS.md" ]]; then
+    cp -r "$PIPELINE_SOURCE_HOST" "$DEPLOY_TARGET/pipeline-agentic"
+    _ok "Copied canonical pipeline-agentic source to $DEPLOY_TARGET/pipeline-agentic"
+else
+    _warn "pipeline-agentic not found or incomplete at: $PIPELINE_SOURCE_HOST"
+    _warn "install-all.sh will stop at global pipeline injection until it is supplied."
 fi
 
 # Copy .env.example into proot for reference.

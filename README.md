@@ -40,7 +40,7 @@ graph TB
         end
 
         subgraph "L4: Agent Pipeline"
-            K["CLAUDE.md + AGENTS.md<br/>Archon - Ontos - Pragma<br/>Dokimos - Hermon"]
+            K["Global Claude / Gemini / Codex context<br/>Archon - Ontos - Pragma<br/>Dokimos - Hermon"]
         end
 
         subgraph "L5: MCP Servers"
@@ -131,17 +131,14 @@ If the shell was already open while the installer ran, reload it once:
 source ~/.bashrc
 ```
 
-### 4. Start code-server (with tmux for persistence)
+### 4. Start code-server
 
 ```bash
-# Option A: --tmux flag (recommended — one command, fully detached)
-csm start --tmux                    # code-server in tmux session
-csm watchdog --tmux                 # supervisor in tmux session
+# csm already detaches code-server from the current shell.
+csm start
 
-# Option B: manual tmux session
-tmux -S ~/.tmux-socket new -s dev   # create session
-csm start                           # inside tmux
-# Ctrl-a + d                        # detach
+# Keep the long-running supervisor in tmux.
+csm watchdog --tmux
 
 # Access via browser
 # http://localhost:8443
@@ -150,34 +147,47 @@ csm start                           # inside tmux
 ### Daily Usage
 
 ```bash
-# --- code-server (with --tmux) ---
-csm start --tmux             # start in detached tmux session
+# --- code-server ---
+csm start                    # csm detaches code-server automatically
 csm stop                     # stop (works regardless of tmux)
-csm restart --tmux           # stop + start in tmux
+csm restart                  # stop + start
 csm watchdog --tmux          # supervisor in tmux
 csm status                   # process state + health
 csm logs                     # view logs
 
 # --- tmux session management ---
 tmux -S ~/.tmux-socket ls                         # list sessions
-tmux -S ~/.tmux-socket attach -t csm-server       # attach to code-server
 tmux -S ~/.tmux-socket attach -t csm-watchdog     # attach to watchdog
 # Ctrl-a + d                                      # detach
 # Ctrl-a + [                                      # scroll mode
 ```
 
-> **Note:** proot requires a custom socket path (`-S ~/.tmux-socket`). The `--tmux` flag handles this automatically.
+> **Note:** proot requires a custom socket path (`-S ~/.tmux-socket`). Use `--tmux` for long-running `csm` commands such as `watchdog`.
+
+### Interactive Bash profile
+
+`setup-shell.sh` installs a native Bash profile with a colored banner and no
+zsh dependency. Run `source ~/.bashrc` once in an already-open shell, then use
+`stack` (or `menu`) for the interactive launcher.
+
+| Command | Action |
+|---------|--------|
+| `ws` / `projects` | Go to `Documents` / `Documents/workspaces` |
+| `stack` / `menu` | Open the interactive development menu |
+| `agents` | Choose a pipeline role and engine interactively |
+| `archon`, `ontos`, `pragma`, `dokimos`, `hermon` | Start that role with Claude Code |
+| `agy-archon`, `agy-ontos`, `agy-pragma`, `agy-dokimos`, `agy-hermon` | Start that role with Antigravity CLI |
+| `cs-status`, `cs-start`, `cs-stop`, `cs-restart`, `cs-watch` | Manage code-server and its watchdog |
 
 ### tmux + code-server (recommended workflow)
 
 ```mermaid
 flowchart LR
-    T["Termux"] -->|"csm start --tmux"| S["tmux: csm-server"]
+    T["Termux"] -->|"csm start"| S["csm detached process"]
     T -->|"csm watchdog --tmux"| W["tmux: csm-watchdog"]
     S --> CS["code-server :8443"]
     W -->|"monitors"| CS
     CS -->|"browser"| B["http://localhost:8443"]
-    S -.->|"attach"| AT["tmux attach -t csm-server"]
 
     style S fill:#2ecc71
     style W fill:#e67e22
@@ -214,9 +224,9 @@ stateDiagram-v2
 ```bash
 csm install                        # Install code-server
 csm config                         # Generate config.yaml from .env
-csm start [--tmux]                 # Start (--tmux: in detached tmux session)
+csm start [--tmux]                 # Start (already detached; --tmux is accepted for compatibility)
 csm stop                           # Graceful SIGTERM -> SIGKILL after 5s
-csm restart [--tmux]               # Stop + start (--tmux: in tmux session)
+csm restart [--tmux]               # Stop + start (already detached)
 csm status                         # Process state + health
 csm health                         # HTTP /healthz check (exit 0/1)
 csm logs [N]                       # Last N log lines (default 50)
@@ -268,6 +278,27 @@ Error classification:
 - **network**: `ECONNREFUSED`, `ETIMEDOUT`, `fetch failed`
 - **generic**: unknown error
 
+### Installing and syncing extensions
+
+The extension pipeline can run while code-server is active; it does not stop the
+server. Install the configured profile after `setup-csm.sh` has completed:
+
+```bash
+cd ~/Documents/workspaces/termux-linux-deployer
+bash scripts/ubuntu/setup-extensions.sh
+```
+
+The operation is idempotent: it skips extensions that are already installed and
+retries only deferred failures. To reconcile an existing installation with the
+profile later, run:
+
+```bash
+csm extensions sync config/csm/profile-extensions.json
+```
+
+Reload the code-server browser tab after installation. If an extension still
+does not activate, restart the service with `csm restart` and reload the tab.
+
 ## Claude Code Installation
 
 ```mermaid
@@ -316,7 +347,21 @@ flowchart LR
     style HM fill:#2ecc71
 ```
 
-Agents deployed to `~/.claude/agents/` and `~/.gemini/antigravity-cli/` by `setup-pipeline.sh`.
+`pipeline-agentic`, a sibling canonical repository, is copied into a fresh
+Ubuntu rootfs and then injected globally after `agy`, Claude, and Codex are
+installed. No project-local agent configuration is created.
+
+| CLI | Global pipeline location |
+|-----|--------------------------|
+| Claude Code | `~/.claude/CLAUDE.md`, `~/.claude/agents/*.md` |
+| Antigravity CLI (`agy`) | `~/.gemini/GEMINI.md`, `~/.gemini/config/agents/<role>/agent.md` |
+| Codex | `~/.codex/AGENTS.md`, `~/.codex/agentic-pipeline/roles/*.md` |
+
+The installer requires `pipeline-agentic` beside this repository (or a valid
+`PIPELINE_SOURCE_DIR`) and fails explicitly instead of falling back to stale
+prompt copies. Antigravity workflow templates are maintained in the canonical
+repository and added through its Customizations UI; its current documentation
+does not define a stable filesystem discovery path.
 
 ## MCP Servers
 
@@ -347,14 +392,16 @@ termux-linux-deployer/
 │   │   ├── setup-pipeline.sh          agents + settings merge
 │   │   ├── setup-mcp.sh              MCP servers
 │   │   ├── setup-tmux.sh              tmux config (scroll + attach)
+│   │   ├── setup-shell.sh             native Bash menu + aliases
 │   │   ├── setup-credentials.sh       git + gh auth
 │   ��   └── setup-extensions.sh        profile-based extensions
 │   └── install-all.sh                 orchestrator
 ├── cmd/csm/                           Go source (code-server manager)
 ├── config/
-│   ├── claude/                        settings.json + CLAUDE.md + agents/
-│   ├── agy/                           settings.json + AGENTS.md + agents
+│   ├── claude/                        Claude runtime settings
+│   ├── agy/                           agy runtime settings and MCP template
 │   ├── csm/                          profile-extensions.json
+│   ├── shell/                         native Bash banner + menu + aliases
 │   └── tmux/                          tmux.conf
 ├── docs/
 │   ├── pipeline-management.md         full operational reference
