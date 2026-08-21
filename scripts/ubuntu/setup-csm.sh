@@ -21,12 +21,14 @@ ensure_path
 
 # --- Configuration -----------------------------------------------------------
 
-# Deployer root is the parent of scripts/ubuntu/.
-DEPLOYER_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# Deployer root is two levels above scripts/ubuntu/.
+DEPLOYER_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
-# cmd/csm is placed one level above deployer root when install-ubuntu.sh
-# copies the repository layout into proot (/root/deployer/../cmd/csm).
-CSM_SRC="$DEPLOYER_DIR/../cmd/csm"
+# Keep the deployer self-contained: install-ubuntu.sh copies cmd/ here too.
+CSM_SRC="$DEPLOYER_DIR/cmd/csm"
+# Compatibility with Ubuntu roots provisioned by older installer versions,
+# which placed cmd/ directly under /root.
+LEGACY_CSM_SRC="$(cd "$DEPLOYER_DIR/.." && pwd)/cmd/csm"
 CSM_BIN="/root/.local/bin/csm"
 
 # --- Pre-flight --------------------------------------------------------------
@@ -44,9 +46,14 @@ log_success "Go $(go version)"
 
 # Verify the source directory exists before attempting compilation.
 if [[ ! -d "$CSM_SRC" ]]; then
-    log_fail "csm source directory not found: ${CSM_SRC}"
-    log_warn "Expected layout: /root/cmd/csm/ (copied by install-ubuntu.sh)"
-    exit 1
+    if [[ -d "$LEGACY_CSM_SRC" ]]; then
+        CSM_SRC="$LEGACY_CSM_SRC"
+        log_warn "Using legacy csm source path: ${CSM_SRC}"
+    else
+        log_fail "csm source directory not found: ${CSM_SRC}"
+        log_warn "Expected layout: <deployer-root>/cmd/csm"
+        exit 1
+    fi
 fi
 
 # --- Build csm ---------------------------------------------------------------

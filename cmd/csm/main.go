@@ -46,7 +46,7 @@ var (
 	configDir     = filepath.Join(home, ".config", "code-server")
 	dataDir       = filepath.Join(home, ".local", "share", "code-server")
 	extensionsDir = filepath.Join(home, ".local", "share", "vscode-extensions")
-	workspaceDir  = getEnv("WORKSPACE_DIR", filepath.Join(home, "home", "Documents"))
+	workspaceDir  = resolveWorkspaceDir()
 	configFile    = filepath.Join(configDir, "config.yaml")
 	pidFile       = filepath.Join(configDir, "code-server.pid")
 	logFile       = filepath.Join(configDir, "code-server.log")
@@ -54,6 +54,46 @@ var (
 	password      = os.Getenv("CS_PASSWORD")
 	memoryLimit   = getEnv("CS_MEMORY_LIMIT", "3072") // MB for NODE_OPTIONS=--max-old-space-size
 )
+
+// resolveWorkspaceDir selects the persistent Documents directory inside the
+// PRoot home. It accepts an explicit override, but treats the old
+// /root/home/Documents default as stale so existing .env files self-heal.
+func resolveWorkspaceDir() string {
+	configured := strings.TrimSpace(os.Getenv("WORKSPACE_DIR"))
+	legacyDefault := filepath.Join(home, "home", "Documents")
+	if configured != "" && filepath.Clean(configured) != legacyDefault {
+		return configured
+	}
+
+	// Android/PRoot setups are often created with Documents, documents, or a
+	// localized casing. Reuse the existing directory before creating one.
+	entries, err := os.ReadDir(home)
+	if err == nil {
+		for _, entry := range entries {
+			if entry.IsDir() && strings.EqualFold(entry.Name(), "documents") {
+				return filepath.Join(home, entry.Name())
+			}
+		}
+	}
+	return filepath.Join(home, "Documents")
+}
+
+// ensureWorkspaceContainer creates a conventional workspace folder only when
+// Documents has neither workspace/ nor workspaces/. The code-server root stays
+// Documents so sibling folders remain visible in the file explorer.
+func ensureWorkspaceContainer(documentsDir string) error {
+	entries, err := os.ReadDir(documentsDir)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if entry.IsDir() && (strings.EqualFold(entry.Name(), "workspace") ||
+			strings.EqualFold(entry.Name(), "workspaces")) {
+			return nil
+		}
+	}
+	return os.MkdirAll(filepath.Join(documentsDir, "workspaces"), 0o750)
+}
 
 // version is set at build time via -ldflags "-X main.version=<tag>".
 var version = "dev"
@@ -98,21 +138,16 @@ func main() {
 		cmdConfig()
 	case "start":
 		if tmuxFlag {
-			cmdTmuxWrap("csm-server", "csm start")
-		} else {
-			cmdStart()
+			printInfo("code-server is already detached by csm; starting directly.")
 		}
+		cmdStart()
 	case "stop":
 		cmdStop()
 	case "restart":
 		if tmuxFlag {
-			// Stop existing, then launch in tmux
-			cmdStop()
-			time.Sleep(time.Second)
-			cmdTmuxWrap("csm-server", "csm start")
-		} else {
-			cmdRestart()
+			printInfo("code-server is already detached by csm; restarting directly.")
 		}
+		cmdRestart()
 	case "status":
 		cmdStatus()
 	case "health":
@@ -133,7 +168,7 @@ func main() {
 		cmdPurge()
 	case "watchdog":
 		if tmuxFlag {
-			cmdTmuxWrap("csm-watchdog", "csm watchdog")
+			cmdTmuxWrap("csm-watchdog", "watchdog")
 		} else {
 			cmdWatchdog()
 		}
@@ -245,11 +280,22 @@ func cmdInstall() {
 }
 
 // hashPassword attempts to hash a plaintext password using argon2-cli via npx.
-// Returns the hashed string, or an error if argon2-cli is not available.
+// PRoot is deliberately skipped because npx may block while compiling native
+// dependencies there. Native environments have a bounded attempt instead.
 func hashPassword(plain string) (string, error) {
-	cmd := exec.Command("npx", "argon2-cli", plain, "--argon2id", "-e")
+	if version, err := os.ReadFile("/proc/version"); err == nil &&
+		strings.Contains(strings.ToLower(string(version)), "proot") {
+		return "", fmt.Errorf("argon2-cli is disabled in PRoot")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "npx", "argon2-cli", plain, "--argon2id", "-e")
 	out, err := cmd.Output()
 	if err != nil {
+		if ctx.Err() != nil {
+			return "", fmt.Errorf("argon2-cli timed out after 30 seconds")
+		}
 		return "", err
 	}
 	return strings.TrimSpace(string(out)), nil
@@ -272,6 +318,11 @@ func cmdConfig() {
 		}
 		printInfo("  " + dir)
 	}
+	if err := ensureWorkspaceContainer(workspaceDir); err != nil {
+		printError("failed to prepare workspace directory: " + err.Error())
+		os.Exit(1)
+	}
+	printInfo("Workspace root: " + workspaceDir)
 
 	// Determine password field: try Argon2 hash first, fall back to plaintext.
 	passwordLine := "password: " + password
@@ -313,6 +364,13 @@ disable-telemetry: true
 
 	if err := os.WriteFile(configFile, []byte(configContent), 0o600); err != nil {
 		printError("failed to write config: " + err.Error())
+		os.Exit(1)
+	}
+	// WriteFile preserves the mode of an existing file. The official
+	// code-server installer may have created config.yaml as 0644, so enforce
+	// private permissions after every regeneration.
+	if err := os.Chmod(configFile, 0o600); err != nil {
+		printError("failed to secure config permissions: " + err.Error())
 		os.Exit(1)
 	}
 	printSuccess("Configuration written to " + configFile)
@@ -1562,7 +1620,13 @@ func cmdTmuxWrap(sessionName, command string) {
 		return
 	}
 
-	// Launch detached session running the command.
+	// Launch the current binary by absolute path. tmux may start with a PATH
+	// that omits ~/.local/bin, which is where this deployer installs csm.
+	executable, err := os.Executable()
+	if err != nil {
+		executable = os.Args[0]
+	}
+	command = fmt.Sprintf("%q %s", executable, command)
 	cmd := tmuxCmd("new-session", "-d", "-s", sessionName, command)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
