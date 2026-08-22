@@ -3,12 +3,14 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/ubuntu/lib/common.sh
 source "$SCRIPT_DIR/lib/common.sh"
 
 DEPLOYER_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 PROFILE_SRC="$DEPLOYER_DIR/config/shell/termux-stack.sh"
 PROFILE_DIR="$HOME/.config/termux-linux-deployer"
 PROFILE_TARGET="$PROFILE_DIR/termux-stack.sh"
+# shellcheck disable=SC2016 # Variables expand when .bashrc is sourced, not during setup.
 BASHRC_LINE='[ -f "$HOME/.config/termux-linux-deployer/termux-stack.sh" ] && . "$HOME/.config/termux-linux-deployer/termux-stack.sh"'
 
 log_header "Interactive Bash Profile"

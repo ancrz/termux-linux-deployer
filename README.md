@@ -1,5 +1,12 @@
 # termux-linux-deployer
 
+[![Shell](https://img.shields.io/badge/shell-Bash-4EAA25?logo=gnubash&logoColor=white)](#interactive-bash-profile)
+[![Host](https://img.shields.io/badge/host-Termux-111111?logo=android&logoColor=white)](#architecture)
+[![Guest](https://img.shields.io/badge/guest-Ubuntu%20PRoot-E95420?logo=ubuntu&logoColor=white)](#architecture)
+[![tmux](https://img.shields.io/badge/persistence-tmux-1BB91F?logo=tmux&logoColor=white)](#tmux-persistence)
+[![code--server](https://img.shields.io/badge/IDE-code--server-007ACC?logo=visualstudiocode&logoColor=white)](#code-server-manager-csm)
+[![Agents](https://img.shields.io/badge/agents-Claude%20%C2%B7%20agy%20%C2%B7%20Codex-8A2BE2)](#interactive-bash-profile)
+
 Automated deployment of a full development environment inside proot-distro Ubuntu on Termux (Android/arm64). Deploys **Claude Code**, **Antigravity CLI (agy)**, **Codex CLI**, **code-server**, **Go**, **UV/Python**, **Node.js**, MCP servers, and a 5-agent pipeline framework.
 
 ## Target Device
@@ -148,48 +155,67 @@ csm watchdog --tmux
 
 ```bash
 # --- code-server ---
-csm start                    # csm detaches code-server automatically
-csm stop                     # stop (works regardless of tmux)
-csm restart                  # stop + start
-csm watchdog --tmux          # supervisor in tmux
-csm status                   # process state + health
-csm logs                     # view logs
+cs-start                     # starts the already-detached code-server and prints its URL
+cs-stop                      # stop (works regardless of tmux)
+cs-restart                   # stop + start
+cs-watch                     # persistent watchdog in tmux
+cs-attach                    # reconnect to csm-watchdog
+cs-status                    # process state + health
 
 # --- tmux session management ---
-tmux -S ~/.tmux-socket ls                         # list sessions
-tmux -S ~/.tmux-socket attach -t csm-watchdog     # attach to watchdog
+t-list                       # list sessions using the PRoot-safe socket
+t-dev                        # create/reconnect a general development shell
+t-agy                        # create/reconnect the agy session
+t-claude                     # create/reconnect the Claude Code session
+t-codex                      # create/reconnect the Codex session
+t-attach csm-watchdog        # attach a named session
 # Ctrl-a + d                                      # detach
 # Ctrl-a + [                                      # scroll mode
 ```
 
-> **Note:** proot requires a custom socket path (`-S ~/.tmux-socket`). Use `--tmux` for long-running `csm` commands such as `watchdog`.
+> **Note:** PRoot requires a custom socket path (`~/.tmux-socket`), which all `t-*` commands use automatically. `csm start` is already detached; `cs-watch` is the persistent tmux workflow for the watchdog.
 
 ### Interactive Bash profile
 
-`setup-shell.sh` installs a native Bash profile with a colored banner and no
-zsh dependency. Run `source ~/.bashrc` once in an already-open shell, then use
-`stack` (or `menu`) for the interactive launcher.
+`setup-shell.sh` installs a native Bash profile with a green/cyan boot splash,
+no zsh dependency, and two complementary modes. Run `source ~/.bashrc` once in
+an already-open shell, then use `stack` (or `menu`) for the launcher. The
+profile never starts tmux, code-server, or an agent by itself.
+
+**Preflight:** `base-setup.sh` installs `tmux`; `setup-tmux.sh` validates its
+configuration; and `setup-csm.sh`, `setup-agy.sh`, `setup-claude.sh`, and
+`setup-codex.sh` provide the optional commands. Each shortcut checks its binary
+and gives a clear message if its component was not installed.
 
 | Command | Action |
 |---------|--------|
 | `ws` / `projects` | Go to `Documents` / `Documents/workspaces` |
 | `stack` / `menu` | Open the interactive development menu |
+| `stack-help` | Show normal, tmux, and persistence shortcuts |
 | `agents` | Choose a pipeline role and engine interactively |
 | `archon`, `ontos`, `pragma`, `dokimos`, `hermon` | Start that role with Claude Code |
 | `agy-archon`, `agy-ontos`, `agy-pragma`, `agy-dokimos`, `agy-hermon` | Start that role with Antigravity CLI |
-| `cs-status`, `cs-start`, `cs-stop`, `cs-restart`, `cs-watch` | Manage code-server and its watchdog |
+| `cs-status`, `cs-start`, `cs-stop`, `cs-restart`, `cs-url` | Manage code-server from a normal shell |
+| `cs-watch` / `cs-attach` | Start or reconnect the persistent watchdog session |
+| `t-dev`, `t-agy`, `t-claude`, `t-codex` | Create or reconnect persistent developer/agent sessions |
+| `t-list`, `t-attach <session>` | Inspect or reconnect any managed tmux session |
 
-### tmux + code-server (recommended workflow)
+### tmux persistence
 
 ```mermaid
 flowchart LR
-    T["Termux"] -->|"csm start"| S["csm detached process"]
-    T -->|"csm watchdog --tmux"| W["tmux: csm-watchdog"]
+    L["Ubuntu PRoot login\nBash splash"] --> N["Normal mode\ncs-start · agents · stack"]
+    L --> T["tmux mode\nt-* uses ~/.tmux-socket"]
+    N --> S["csm start\nalready detached"]
+    T --> A["t-agy / t-claude / t-codex\nreconnect if session exists"]
+    T --> D["t-dev\npersistent development shell"]
+    N --> W["cs-watch\ntmux: csm-watchdog"]
+    W -->|"monitors"| S
     S --> CS["code-server :8443"]
-    W -->|"monitors"| CS
-    CS -->|"browser"| B["http://localhost:8443"]
+    CS --> B["browser"]
+    T -->|"Ctrl-a d disconnect"| T
 
-    style S fill:#2ecc71
+    style T fill:#2ecc71
     style W fill:#e67e22
     style CS fill:#4a9eff
 ```
@@ -224,14 +250,14 @@ stateDiagram-v2
 ```bash
 csm install                        # Install code-server
 csm config                         # Generate config.yaml from .env
-csm start [--tmux]                 # Start (already detached; --tmux is accepted for compatibility)
+csm start                          # Start (already detached; tmux is not required)
 csm stop                           # Graceful SIGTERM -> SIGKILL after 5s
-csm restart [--tmux]               # Stop + start (already detached)
+csm restart                        # Stop + start (already detached)
 csm status                         # Process state + health
 csm health                         # HTTP /healthz check (exit 0/1)
 csm logs [N]                       # Last N log lines (default 50)
 csm logs rotate                    # Rotate logs if over 100MB (keeps 7 backups)
-csm watchdog [--tmux]              # Supervisor loop (--tmux: in tmux session)
+csm watchdog --tmux                # Supervisor in detached csm-watchdog tmux session
 csm purge                          # Remove all data (interactive)
 csm extensions install [profile]   # Profile-based install with retry
 csm extensions list                # List installed extensions
