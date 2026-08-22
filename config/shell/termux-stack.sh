@@ -42,6 +42,27 @@ stack_logo() {
     printf '%b\n\n' "${_stack_color_blue}Workspace:${_stack_color_reset} ${TERMUX_WORKSPACE_ROOT}  ${_stack_color_blue}tmux:${_stack_color_reset} ${TERMUX_TMUX_SOCKET}"
 }
 
+# The menu reuses stack_logo. Keep the command map separate so it appears only
+# at login, where it serves as a compact operational reference.
+stack_quickstart() {
+    printf '%b\n' "${_stack_color_green}Acciones rápidas${_stack_color_reset} (nada se inicia automáticamente)"
+    printf '  %-18s %s\n' 't-dev' 'consola de desarrollo persistente'
+    printf '  %-18s %s\n' 't-agy' 'sesión persistente de agy'
+    printf '  %-18s %s\n' 't-claude' 'sesión persistente de Claude Code'
+    printf '  %-18s %s\n' 't-codex' 'sesión persistente de Codex'
+    printf '  %-18s %s\n' 'cs-start' 'inicia code-server y muestra su URL'
+    printf '  %-18s %s\n' 'cs-watch' 'supervisor persistente de code-server'
+    printf '  %-18s %s\n' 't-list' 'lista las sesiones activas'
+    printf '  %-18s %s\n' 't-attach <sesión>' 'reconecta una sesión existente'
+    printf '  %-18s %s\n' 'stack / stack-help' 'menú interactivo / guía completa'
+    printf '%b\n\n' "${_stack_color_yellow}tmux:${_stack_color_reset} Ctrl-a, d desacopla la sesión; vuelve con t-attach <sesión>."
+}
+
+stack_splash() {
+    stack_logo
+    stack_quickstart
+}
+
 stack_workspace() {
     mkdir -p "$TERMUX_WORKSPACE_ROOT/workspaces"
     cd "$TERMUX_WORKSPACE_ROOT" || return
@@ -191,9 +212,12 @@ stack_code_attach() {
 }
 
 stack_help() {
-    printf '%b\n' "${_stack_color_green}Normal:${_stack_color_reset} stack, ws, projects, agents, cs-start, cs-stop, cs-status"
-    printf '%b\n' "${_stack_color_green}tmux:${_stack_color_reset} t-dev, t-agy, t-claude, t-codex, t-list, t-attach [sesión]"
-    printf '%b\n' "${_stack_color_green}Persistencia:${_stack_color_reset} cs-watch crea csm-watchdog; cs-attach la reconecta"
+    printf '%b\n' "${_stack_color_green}Navegación:${_stack_color_reset} ws, projects, stack (o menu), agents"
+    printf '%b\n' "${_stack_color_green}Agentes directos:${_stack_color_reset} claude, agy, codex; archon/ontos/pragma/dokimos/hermon"
+    printf '%b\n' "${_stack_color_green}tmux persistente:${_stack_color_reset} t-dev, t-agy, t-claude, t-codex"
+    printf '%b\n' "${_stack_color_green}Reanudar tmux:${_stack_color_reset} t-list, t-attach <sesión>; desacoplar con Ctrl-a, d"
+    printf '%b\n' "${_stack_color_green}code-server:${_stack_color_reset} cs-status, cs-start, cs-stop, cs-restart, cs-url"
+    printf '%b\n' "${_stack_color_green}Supervisor:${_stack_color_reset} cs-watch crea csm-watchdog; cs-attach la reconecta"
 }
 
 stack_menu() {
@@ -250,6 +274,6 @@ alias t-claude='stack_tmux_claude'
 alias t-codex='stack_tmux_codex'
 
 if [[ -z "${TERMUX_STACK_BANNER_SHOWN:-}" ]]; then
-    stack_logo
+    stack_splash
     export TERMUX_STACK_BANNER_SHOWN=1
 fi

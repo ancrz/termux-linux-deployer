@@ -178,9 +178,12 @@ t-attach csm-watchdog        # attach a named session
 ### Interactive Bash profile
 
 `setup-shell.sh` installs a native Bash profile with a green/cyan boot splash,
-no zsh dependency, and two complementary modes. Run `source ~/.bashrc` once in
-an already-open shell, then use `stack` (or `menu`) for the launcher. The
-profile never starts tmux, code-server, or an agent by itself.
+no zsh dependency, and two complementary modes. On every new Ubuntu PRoot
+login, the splash keeps the essential commands visible: persistent agent
+sessions (`t-agy`, `t-claude`, `t-codex`), `t-dev`, code-server controls, and
+the reconnect flow (`t-list`, `t-attach <session>`). Run `source ~/.bashrc`
+once in an already-open shell, then use `stack` (or `menu`) for the launcher.
+The profile never starts tmux, code-server, or an agent by itself.
 
 **Preflight:** `base-setup.sh` installs `tmux`; `setup-tmux.sh` validates its
 configuration; and `setup-csm.sh`, `setup-agy.sh`, `setup-claude.sh`, and
@@ -204,7 +207,7 @@ and gives a clear message if its component was not installed.
 
 ```mermaid
 flowchart LR
-    L["Ubuntu PRoot login\nBash splash"] --> N["Normal mode\ncs-start · agents · stack"]
+    L["Ubuntu PRoot login\nBash splash + command map"] --> N["Normal mode\ncs-start · agents · stack"]
     L --> T["tmux mode\nt-* uses ~/.tmux-socket"]
     N --> S["csm start\nalready detached"]
     T --> A["t-agy / t-claude / t-codex\nreconnect if session exists"]
