@@ -448,4 +448,6 @@ All scripts are idempotent. Re-running:
 
 ## License
 
-MIT
+This project is released under the [MIT License](LICENSE). You may use, copy,
+modify, distribute, sublicense, and improve it, provided that the copyright
+and license notice are retained. It is provided without warranty.
