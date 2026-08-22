@@ -185,8 +185,9 @@ the reconnect flow (`t-list`, `t-attach <session>`). Run `source ~/.bashrc`
 once in an already-open shell, then use `stack` (or `menu`) for the launcher.
 The profile never starts tmux, code-server, or an agent by itself.
 
-**Preflight:** `base-setup.sh` installs `tmux`; `setup-tmux.sh` validates its
-configuration; and `setup-csm.sh`, `setup-agy.sh`, `setup-claude.sh`, and
+**Preflight:** `base-setup.sh` installs `tmux` and the stable Ubuntu
+`shellcheck` package; `setup-tmux.sh` validates its configuration; and
+`setup-csm.sh`, `setup-agy.sh`, `setup-claude.sh`, and
 `setup-codex.sh` provide the optional commands. Each shortcut checks its binary
 and gives a clear message if its component was not installed.
 

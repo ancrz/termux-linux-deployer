@@ -2,7 +2,8 @@
 # =============================================================================
 # base-setup.sh — Ubuntu base environment setup for termux-linux-deployer.
 #
-# Installs: essential system packages, Rust (via rustup), Go, and UV.
+# Installs: essential system packages (including ShellCheck), Rust (via rustup),
+# Go, and UV.
 # Idempotent: checks before every install/upgrade; safe to re-run.
 # Must run as root inside proot-distro Ubuntu.
 #
@@ -11,6 +12,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/ubuntu/lib/common.sh
 source "$SCRIPT_DIR/lib/common.sh"
 
 load_env
@@ -44,6 +46,7 @@ SYSTEM_PACKAGES=(
     tree
     tmux
     jq
+    shellcheck
     gnupg
     ca-certificates
     p7zip-full
@@ -183,6 +186,7 @@ printf "  %-20s %s\n" "Cargo:" "$(cargo --version 2>/dev/null || echo 'not found
 printf "  %-20s %s\n" "Go:" "$(go version 2>/dev/null || echo 'not found')"
 printf "  %-20s %s\n" "UV:" "$(uv --version 2>/dev/null || echo 'not found')"
 printf "  %-20s %s\n" "Python3 (system):" "$(python3 --version 2>/dev/null || echo 'not found')"
+printf "  %-20s %s\n" "ShellCheck:" "$(shellcheck --version 2>/dev/null | awk '/version:/ {print $2; exit}' || echo 'not found')"
 echo ""
 
 log_success "Base setup complete. Run install-all.sh to continue."
