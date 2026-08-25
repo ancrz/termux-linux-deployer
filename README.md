@@ -11,7 +11,11 @@ Automated deployment of a full development environment inside proot-distro Ubunt
 
 ## Target Device
 
-Samsung Galaxy Tab S10 Ultra — 12GB RAM, 256GB storage, Android (locked bootloader).
+This project scales to hardware where a Linux server and code environments can run smoothly (e.g., high-end or mid-range Android tablets and phones). While initially modeled around premium specs, it is generic enough to work on any modern device with a capable multi-core processor and sufficient RAM (typically 8GB+ recommended for full IDE and agentic workloads).
+
+### Termux Installation
+
+**Important:** The version of Termux available on the Google Play Store is **deprecated** and severely limited by current Android policies. It is highly recommended to download and install Termux directly from **[F-Droid](https://f-droid.org/packages/com.termux/)** or the **[GitHub releases page](https://github.com/termux/termux-app/releases)** to ensure proper functionality and receive updates.
 
 ## Architecture
 
