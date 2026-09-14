@@ -64,6 +64,9 @@ write_agy_agent() {
         printf '%s\n' '---'
         printf 'name: %s\n' "$role"
         printf 'description: %s\n' "$description"
+        printf 'enable_write_tools: true\n'
+        printf 'enable_mcp_tools: true\n'
+        printf 'enable_subagent_tools: true\n'
         printf '%s\n\n' '---'
         cat "$role_file"
     } > "$agent_dir/agent.md"
