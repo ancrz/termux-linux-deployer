@@ -53,6 +53,7 @@ write_agy_agent() {
     local description
     case "$role" in
         archon) description="Plans work before implementation." ;;
+        graphos) description="Weaves knowledge and sequential rollups." ;;
         ontos) description="Audits plans for structural integrity." ;;
         pragma) description="Implements an approved plan." ;;
         dokimos) description="Verifies implementation and tests." ;;
@@ -90,7 +91,7 @@ log_step "Canonical source: $PIPELINE_SOURCE"
 log_header "Claude Code — user-wide agents"
 mkdir -p "$HOME/.claude/agents"
 copy_pipeline_file "$PIPELINE_SOURCE/claude/CLAUDE.md" "$HOME/.claude/CLAUDE.md"
-for agent in Archon Ontos Pragma Dokimos Hermon; do
+for agent in Archon Graphos Ontos Pragma Dokimos Hermon; do
     copy_pipeline_file "$PIPELINE_SOURCE/claude/${agent}.md" "$HOME/.claude/agents/${agent}.md"
 done
 
@@ -111,12 +112,12 @@ if [[ -f "$CLAUDE_CONFIG_SRC/settings.json" ]]; then
         printf '%s\n' "$source_json" > "$HOME/.claude/settings.json"
     fi
 fi
-log_success "Installed CLAUDE.md and 5 user-level agents"
+log_success "Installed CLAUDE.md and 6 user-level agents"
 
 log_header "Antigravity CLI — global rules and agents"
 mkdir -p "$HOME/.gemini/config/agents"
 copy_pipeline_file "$PIPELINE_SOURCE/gemini/gemini-cli/GEMINI.md" "$HOME/.gemini/GEMINI.md"
-for role in archon ontos pragma dokimos hermon; do
+for role in archon graphos ontos pragma dokimos hermon; do
     role_source="$PIPELINE_SOURCE/gemini/gemini-cli/${role}.md"
     copy_pipeline_file "$role_source" "$HOME/.gemini/${role}.md"
     write_agy_agent "$role" "$HOME/.gemini/${role}.md"
@@ -129,7 +130,7 @@ copy_pipeline_file "$HOME/.gemini/GEMINI.md" "$HOME/.gemini/antigravity-cli/AGEN
 # Older installer revisions registered the same pipeline roles as JSON below
 # antigravity-cli. Current agy discovers Markdown agents from ~/.gemini/config.
 # Keep a recoverable backup but remove the stale registrations from discovery.
-for role in archon ontos pragma dokimos hermon; do
+for role in archon graphos ontos pragma dokimos hermon; do
     legacy_agent="$HOME/.gemini/antigravity-cli/agents/${role}/agent.json"
     if [[ -f "$legacy_agent" ]]; then
         legacy_backup="$HOME/.gemini/antigravity-cli/agents.disabled/${role}.agent.json"
@@ -146,17 +147,17 @@ if [[ -f "$AGY_CONFIG_SRC/mcp_config.json" && ! -f "$HOME/.gemini/config/mcp_con
     mkdir -p "$HOME/.gemini/config"
     cp "$AGY_CONFIG_SRC/mcp_config.json" "$HOME/.gemini/config/mcp_config.json"
 fi
-log_success "Installed GEMINI.md, 5 role files and 5 global agents"
+log_success "Installed GEMINI.md, 6 role files and 6 global agents"
 log_step "Workflow templates remain in the canonical source for Antigravity's Customizations UI."
 
 log_header "Codex — global AGENTS.md"
 mkdir -p "$HOME/.codex/agentic-pipeline/roles"
 copy_pipeline_file "$PIPELINE_SOURCE/codex/AGENTS.md" "$HOME/.codex/AGENTS.md"
-for role in archon ontos pragma dokimos hermon; do
+for role in archon graphos ontos pragma dokimos hermon; do
     copy_pipeline_file "$PIPELINE_SOURCE/gemini/gemini-cli/${role}.md" \
         "$HOME/.codex/agentic-pipeline/roles/${role}.md"
 done
-log_success "Installed global AGENTS.md and 5 canonical role prompts"
+log_success "Installed global AGENTS.md and 6 canonical role prompts"
 
 log_header "Deployment Summary"
 printf '  %-28s %s\n' "Canonical source:" "$PIPELINE_SOURCE"
