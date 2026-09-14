@@ -361,20 +361,22 @@ flowchart TD
 flowchart LR
     subgraph Orchestrator
         direction TB
-        O["CLAUDE.md / AGENTS.md"]
+        O["CLAUDE.md / GEMINI.md / AGENTS.md"]
     end
 
-    O -->|"new task"| AR["Archon<br/>opus<br/>Plan"]
-    AR -->|"plan ready"| ON["Ontos<br/>opus<br/>Audit"]
-    ON -->|"APPROVED"| PR["Pragma<br/>sonnet<br/>Execute"]
+    O -->|"new task"| AR["Archon<br/>Plan"]
+    AR -->|"plan ready"| GR["Graphos<br/>Weave"]
+    GR -->|"context ready"| ON["Ontos<br/>Audit"]
+    ON -->|"APPROVED"| PR["Pragma<br/>Execute"]
     ON -->|"BLOCKED"| AR
-    PR -->|"done"| DK["Dokimos<br/>sonnet<br/>Verify"]
+    PR -->|"done"| DK["Dokimos<br/>Verify"]
     PR -->|"blocker"| ON
-    DK -->|"VERIFIED"| HM["Hermon<br/>sonnet<br/>Commit"]
+    DK -->|"VERIFIED"| HM["Hermon<br/>Commit"]
     DK -->|"LOGIC_ERROR"| PR
     DK -->|"PLAN_GAP"| AR
 
     style AR fill:#4a9eff
+    style GR fill:#4a9eff
     style ON fill:#4a9eff
     style PR fill:#2ecc71
     style DK fill:#2ecc71
