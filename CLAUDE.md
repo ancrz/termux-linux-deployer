@@ -11,25 +11,24 @@ If the pipeline agents are NOT yet deployed, run:
 ```bash
 bash scripts/ubuntu/setup-pipeline.sh
 ```
-This copies agent definitions from `config/claude/agents/` to `~/.claude/agents/`
-and `config/claude/CLAUDE.md` to `~/.claude/CLAUDE.md`.
+This discovers the sibling canonical `pipeline-agentic` repository and copies its agent definitions to your global `~/.claude/`, `~/.gemini/`, and `~/.codex/` paths.
 
 To verify agents are deployed:
 ```bash
-ls ~/.claude/agents/  # Should show: Archon.md Dokimos.md Hermon.md Ontos.md Pragma.md
+ls ~/.claude/agents/  # Should show 6 files: Archon.md Graphos.md Ontos.md Pragma.md Dokimos.md Hermon.md
 ```
 
 ## Agent Pipeline
 
-This project uses the Topos Integrity Protocol with 5 agents:
-- **Archon** (opus) — Planning
-- **Ontos** (opus) — Structural audit
-- **Pragma** (sonnet) — Code execution
-- **Dokimos** (sonnet) — Verification
-- **Hermon** (sonnet) — Git operations
+This project uses the Topos Integrity Protocol V2 with 6 agents:
+- **Archon** (gemini-2.5-pro / claude-3-7-sonnet) — Planning
+- **Graphos** (gemini-2.0-flash / claude-3-5-sonnet) — Knowledge Weaving
+- **Ontos** (gemini-2.5-pro / claude-3-7-sonnet) — Structural audit
+- **Pragma** (gemini-2.5-flash / claude-3-7-sonnet) — Code execution
+- **Dokimos** (gemini-2.5-pro / claude-3-7-sonnet) — Verification
+- **Hermon** (gemini-2.0-flash / claude-3-7-sonnet) — Git operations
 
-Agent definitions are in `config/claude/agents/`. The master CLAUDE.md
-(pipeline controller) is in `config/claude/CLAUDE.md`.
+Agent definitions are dynamically injected from the canonical `pipeline-agentic` repository. `termux-linux-deployer` does not host any project-local overrides for the pipeline rules.
 
 ## Project Structure
 
