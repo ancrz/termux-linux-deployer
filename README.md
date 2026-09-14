@@ -51,7 +51,7 @@ graph TB
         end
 
         subgraph "L4: Agent Pipeline"
-            K["Global Claude / Gemini / Codex context<br/>Archon - Ontos - Pragma<br/>Dokimos - Hermon"]
+            K["Global Claude / Gemini / Codex context<br/>Archon - Graphos - Ontos<br/>Pragma - Dokimos - Hermon"]
         end
 
         subgraph "L5: MCP Servers"

@@ -147,6 +147,7 @@ _stack_agy_agent() {
 }
 
 claude_archon()  { _stack_claude_agent Archon "$@"; }
+claude_graphos() { _stack_claude_agent Graphos "$@"; }
 claude_ontos()   { _stack_claude_agent Ontos "$@"; }
 claude_pragma()  { _stack_claude_agent Pragma "$@"; }
 claude_dokimos() { _stack_claude_agent Dokimos "$@"; }
@@ -160,8 +161,8 @@ agy_hermon()  { _stack_agy_agent hermon "$@"; }
 
 stack_agents() {
     local role engine
-    printf '%b\n' "${_stack_color_cyan}Pipeline: Archon → Ontos → Pragma → Dokimos → Hermon${_stack_color_reset}"
-    printf '  1) Archon   2) Ontos   3) Pragma   4) Dokimos   5) Hermon\n'
+    printf '%b\n' "${_stack_color_cyan}Pipeline: Archon → Graphos → Ontos → Pragma → Dokimos → Hermon${_stack_color_reset}"
+    printf '  1) Archon   2) Graphos   3) Ontos   4) Pragma   5) Dokimos   6) Hermon\n'
     read -r -p 'Rol [1-5, Enter para cancelar]: ' role
     case "$role" in
         1) role=archon ;; 2) role=ontos ;; 3) role=pragma ;;
