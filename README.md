@@ -107,10 +107,21 @@ flowchart LR
 
 ### 1. Clone and configure
 
+**Prerequisites:** You must have Git installed, and both repositories (`termux-linux-deployer` and `pipeline-agentic`) must be cloned into the same parent directory so the installer can discover the agentic rules.
+
 ```bash
 # In Termux
-pkg install git -y
+pkg update && pkg install git -y
+
+# Create a workspace directory
+mkdir -p ~/Documents/workspaces
+cd ~/Documents/workspaces
+
+# Clone both required repositories (pipeline-agentic must be public or you must be authenticated)
 git clone https://github.com/ancrz/termux-linux-deployer.git
+git clone https://github.com/ancrz/pipeline-agentic.git
+
+# Configure the deployer
 cd termux-linux-deployer
 cp .env.example .env
 nano .env   # Fill: GITHUB_PERSONAL_ACCESS_TOKEN, CS_PASSWORD, GIT_USER_NAME, GIT_USER_EMAIL
